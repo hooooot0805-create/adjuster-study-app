@@ -1,0 +1,827 @@
+const FIELD_LABELS = {
+  A: "A",
+  B: "B",
+  C: "C",
+  D: "D",
+};
+
+const MODE_LABELS = {
+  cloze: "穴埋め4択",
+  original: "原文○確認",
+  false: "生成×問題",
+  memory: "暗記カード",
+};
+
+const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
+const SEED_DB_NAME = "adjusterStudySeed.v1";
+const SEED_STORE_NAME = "seed";
+const SEED_RECORD_KEY = "app_seed_v2";
+const DEV_SEED_URL = "data/app_seed/app_seed_v2.json";
+const EXPECTED_SEED_COUNTS = {
+  original_questions: 947,
+  memory_points: 947,
+  cloze_questions: 2057,
+  generated_false_questions: 947,
+  test_sets: 57,
+};
+
+const state = {
+  seed: null,
+  seedCounts: null,
+  progress: loadProgress(),
+  mode: "cloze",
+  field: "all",
+  review: "all",
+  testCount: "practice",
+  testSession: null,
+  testComplete: false,
+  queue: [],
+  currentIndex: 0,
+  answered: false,
+};
+
+const el = {
+  loadStatus: document.querySelector("#loadStatus"),
+  todayAttempts: document.querySelector("#todayAttempts"),
+  todayAccuracy: document.querySelector("#todayAccuracy"),
+  weakCount: document.querySelector("#weakCount"),
+  setupPanel: document.querySelector("#setupPanel"),
+  controlPanel: document.querySelector("#controlPanel"),
+  studyLayout: document.querySelector("#studyLayout"),
+  dataPanel: document.querySelector("#dataPanel"),
+  checkUpdateBtn: document.querySelector("#checkUpdateBtn"),
+  reloadAppBtn: document.querySelector("#reloadAppBtn"),
+  loadSeedBtn: document.querySelector("#loadSeedBtn"),
+  reloadSeedBtn: document.querySelector("#reloadSeedBtn"),
+  deleteSeedBtn: document.querySelector("#deleteSeedBtn"),
+  resetProgressBtn: document.querySelector("#resetProgressBtn"),
+  seedFileInput: document.querySelector("#seedFileInput"),
+  setupMessage: document.querySelector("#setupMessage"),
+  appUpdateMessage: document.querySelector("#appUpdateMessage"),
+  seedCounts: document.querySelector("#seedCounts"),
+  loadedSeedCounts: document.querySelector("#loadedSeedCounts"),
+  fieldSelect: document.querySelector("#fieldSelect"),
+  modeSelect: document.querySelector("#modeSelect"),
+  reviewSelect: document.querySelector("#reviewSelect"),
+  testCountSelect: document.querySelector("#testCountSelect"),
+  resetQueueBtn: document.querySelector("#resetQueueBtn"),
+  modeBadge: document.querySelector("#modeBadge"),
+  fieldBadge: document.querySelector("#fieldBadge"),
+  progressBadge: document.querySelector("#progressBadge"),
+  questionArea: document.querySelector("#questionArea"),
+  choicesArea: document.querySelector("#choicesArea"),
+  resultArea: document.querySelector("#resultArea"),
+  testSummaryArea: document.querySelector("#testSummaryArea"),
+  showAnswerBtn: document.querySelector("#showAnswerBtn"),
+  rememberBtn: document.querySelector("#rememberBtn"),
+  weakBtn: document.querySelector("#weakBtn"),
+  wrongBtn: document.querySelector("#wrongBtn"),
+  nextBtn: document.querySelector("#nextBtn"),
+  statAttempts: document.querySelector("#statAttempts"),
+  statCorrect: document.querySelector("#statCorrect"),
+  statWrong: document.querySelector("#statWrong"),
+  statWeak: document.querySelector("#statWeak"),
+  currentItemStats: document.querySelector("#currentItemStats"),
+};
+
+init();
+registerServiceWorker();
+
+async function init() {
+  bindEvents();
+  renderSummary();
+  renderStats();
+  try {
+    const stored = await loadSeedFromIndexedDb();
+    if (stored) {
+      activateSeed(stored.seed, "IndexedDBから教材データを読み込みました。");
+      return;
+    }
+
+    if (isDevSeedFetchEnabled()) {
+      const devSeedLoaded = await tryLoadDevSeed();
+      if (devSeedLoaded) return;
+    }
+
+    showSetup("教材データが未読込です。app_seed_v2.json を選択してください。");
+  } catch (error) {
+    showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
+  }
+}
+
+function isDevSeedFetchEnabled() {
+  return new URLSearchParams(window.location.search).get("dev") === "1";
+}
+
+async function tryLoadDevSeed() {
+  try {
+    const response = await fetch(DEV_SEED_URL, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const seed = await response.json();
+    const counts = validateSeed(seed);
+    await saveSeedToIndexedDb(seed, counts);
+    activateSeed(seed, "開発用ローカルJSONをfetchしてIndexedDBに保存しました。");
+    return true;
+  } catch (error) {
+    console.info(`開発用教材データの自動読み込みをスキップしました: ${error.message}`);
+    return false;
+  }
+}
+
+function bindEvents() {
+  el.loadSeedBtn.addEventListener("click", () => el.seedFileInput.click());
+  el.checkUpdateBtn.addEventListener("click", () => checkAppUpdate());
+  el.reloadAppBtn.addEventListener("click", () => window.location.reload());
+  el.reloadSeedBtn.addEventListener("click", () => el.seedFileInput.click());
+  el.seedFileInput.addEventListener("change", () => handleSeedFileSelected());
+  el.deleteSeedBtn.addEventListener("click", () => deleteSeedData());
+  el.resetProgressBtn.addEventListener("click", () => resetProgress());
+  el.fieldSelect.addEventListener("change", () => {
+    state.field = el.fieldSelect.value;
+    rebuildQueue();
+  });
+  el.modeSelect.addEventListener("change", () => {
+    state.mode = el.modeSelect.value;
+    rebuildQueue();
+  });
+  el.reviewSelect.addEventListener("change", () => {
+    state.review = el.reviewSelect.value;
+    rebuildQueue();
+  });
+  el.testCountSelect.addEventListener("change", () => {
+    state.testCount = el.testCountSelect.value;
+    rebuildQueue();
+  });
+  el.resetQueueBtn.addEventListener("click", () => {
+    rebuildQueue();
+  });
+  el.nextBtn.addEventListener("click", () => {
+    if (state.testComplete) {
+      rebuildQueue();
+      return;
+    }
+    if (!state.queue.length) return;
+    if (state.testSession && state.currentIndex >= state.queue.length - 1) {
+      renderTestSummary();
+      return;
+    }
+    state.currentIndex = state.testSession ? state.currentIndex + 1 : (state.currentIndex + 1) % state.queue.length;
+    renderCurrent();
+  });
+  el.showAnswerBtn.addEventListener("click", () => revealOriginal());
+  el.rememberBtn.addEventListener("click", () => markSelfReview("remembered"));
+  el.weakBtn.addEventListener("click", () => markSelfReview("weak"));
+  el.wrongBtn.addEventListener("click", () => markSelfReview("wrong"));
+}
+
+async function handleSeedFileSelected() {
+  const file = el.seedFileInput.files?.[0];
+  el.seedFileInput.value = "";
+  if (!file) return;
+  try {
+    setSetupMessage("教材データを検証中です...");
+    const text = await file.text();
+    const seed = JSON.parse(text);
+    const counts = validateSeed(seed);
+    await saveSeedToIndexedDb(seed, counts);
+    activateSeed(seed, "教材データを端末内に保存しました。");
+  } catch (error) {
+    showSetup(`教材データを読み込めませんでした: ${error.message}`, true);
+  }
+}
+
+function activateSeed(seed, message) {
+  const counts = validateSeed(seed);
+  state.seed = seed;
+  state.seedCounts = counts;
+  indexSeed(state.seed);
+  el.setupPanel.hidden = true;
+  el.controlPanel.hidden = false;
+  el.studyLayout.hidden = false;
+  el.dataPanel.hidden = false;
+  el.loadStatus.textContent = "教材読込済み";
+  el.loadStatus.classList.add("ready");
+  setSetupMessage(message, false, true);
+  renderSeedCounts(el.loadedSeedCounts, counts);
+  renderSummary();
+  rebuildQueue();
+}
+
+function showSetup(message, isError = false) {
+  state.seed = null;
+  state.seedCounts = null;
+  state.queue = [];
+  el.setupPanel.hidden = false;
+  el.controlPanel.hidden = true;
+  el.studyLayout.hidden = true;
+  el.dataPanel.hidden = true;
+  el.loadStatus.textContent = "教材未読込";
+  el.loadStatus.classList.remove("ready");
+  setSetupMessage(message, isError);
+  el.seedCounts.hidden = true;
+}
+
+function setSetupMessage(message, isError = false, isOk = false) {
+  el.setupMessage.textContent = message;
+  el.setupMessage.className = `setup-message ${isError ? "error" : isOk ? "ok" : ""}`;
+}
+
+function validateSeed(seed) {
+  if (!seed || typeof seed !== "object") throw new Error("JSONの形式が不正です。");
+  const counts = Object.fromEntries(
+    Object.keys(EXPECTED_SEED_COUNTS).map((key) => {
+      if (!Array.isArray(seed[key])) throw new Error(`${key} が配列ではありません。`);
+      return [key, seed[key].length];
+    }),
+  );
+  const mismatches = Object.entries(EXPECTED_SEED_COUNTS).filter(([key, expected]) => {
+    if (typeof expected === "number") return counts[key] !== expected;
+    return counts[key] < expected.min;
+  });
+  if (mismatches.length) {
+    renderSeedCounts(el.seedCounts, counts);
+    el.seedCounts.hidden = false;
+    throw new Error(
+      `件数が想定と異なります: ${mismatches.map(([key, expected]) => `${key}=${counts[key]} expected ${expectedLabel(expected)}`).join(", ")}`,
+    );
+  }
+  renderSeedCounts(el.seedCounts, counts);
+  el.seedCounts.hidden = false;
+  return counts;
+}
+
+function renderSeedCounts(container, counts) {
+  container.innerHTML = Object.entries(EXPECTED_SEED_COUNTS)
+    .map(
+      ([key, expected]) => `
+        <div>
+          <span>${escapeHtml(key)}</span>
+          <strong>${counts?.[key] ?? "-"}</strong>
+          <span>expected ${expectedLabel(expected)}</span>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function expectedLabel(expected) {
+  return typeof expected === "number" ? String(expected) : `${expected.min}+`;
+}
+
+async function deleteSeedData() {
+  if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
+  await deleteSeedFromIndexedDb();
+  showSetup("教材データを削除しました。再度 app_seed_v2.json を読み込んでください。");
+}
+
+async function checkAppUpdate() {
+  if (!("serviceWorker" in navigator)) {
+    setAppUpdateMessage("このブラウザはService Workerに対応していません。", true);
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) {
+      setAppUpdateMessage("Service Workerはまだ登録されていません。ページを再読み込みしてください。", true);
+      return;
+    }
+    await registration.update();
+    setAppUpdateMessage("アプリ更新を確認しました。更新がある場合は、少し待ってから再読み込みしてください。", false, true);
+  } catch (error) {
+    setAppUpdateMessage(`アプリ更新の確認に失敗しました: ${error.message}`, true);
+  }
+}
+
+function setAppUpdateMessage(message, isError = false, isOk = false) {
+  el.appUpdateMessage.textContent = message;
+  el.appUpdateMessage.className = `setup-message ${isError ? "error" : isOk ? "ok" : ""}`;
+}
+
+function resetProgress() {
+  if (!window.confirm("学習進捗をリセットします。教材データは残ります。")) return;
+  state.progress = { items: {}, daily: {} };
+  persistProgress();
+  renderSummary();
+  renderStats();
+  if (state.queue.length) renderItemStats(state.queue[state.currentIndex]);
+}
+
+function indexSeed(seed) {
+  seed.originalById = Object.fromEntries(seed.original_questions.map((item) => [item.question_id, item]));
+  seed.memoryBySourceId = Object.fromEntries(seed.memory_points.map((item) => [item.source_question_id, item]));
+  seed.clozeBySourceId = groupBy(seed.cloze_questions, "source_question_id");
+  seed.falseBySourceId = groupBy(seed.generated_false_questions, "source_question_id");
+}
+
+function groupBy(items, key) {
+  return items.reduce((acc, item) => {
+    const value = item[key];
+    if (!acc[value]) acc[value] = [];
+    acc[value].push(item);
+    return acc;
+  }, {});
+}
+
+function renderSummary() {
+  const today = todayKey();
+  const daily = state.progress.daily?.[today] || { attempts: 0, correct: 0, wrong: 0 };
+  const weak = Object.values(state.progress.items).filter((item) => item.weak).length;
+  const stats = { ...daily, weak };
+  const answered = stats.correct + stats.wrong;
+  el.todayAttempts.textContent = stats.attempts;
+  el.todayAccuracy.textContent = answered ? `${Math.round((stats.correct / answered) * 100)}%` : "-";
+  el.weakCount.textContent = stats.weak;
+}
+
+function rebuildQueue() {
+  if (!state.seed) return;
+  state.answered = false;
+  state.currentIndex = 0;
+  state.testComplete = false;
+  const source = itemsForMode(state.mode);
+  const filtered = source.filter((item) => matchesField(item) && matchesReview(item));
+  state.queue = shuffleItems(filtered);
+  const requestedCount = Number(state.testCount);
+  state.testSession = Number.isFinite(requestedCount)
+    ? {
+        targetCount: Math.min(requestedCount, state.queue.length),
+        correct: 0,
+        wrong: [],
+        answeredIds: new Set(),
+      }
+    : null;
+  if (state.testSession) {
+    state.queue = state.queue.slice(0, state.testSession.targetCount);
+  }
+  renderCurrent();
+  renderStats();
+}
+
+function shuffleItems(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  for (let i = 1; i < copy.length; i += 1) {
+    if (sourceIdFor(copy[i]) === sourceIdFor(copy[i - 1])) {
+      const swapIndex = copy.findIndex((candidate, index) => index > i && sourceIdFor(candidate) !== sourceIdFor(copy[i - 1]));
+      if (swapIndex > i) [copy[i], copy[swapIndex]] = [copy[swapIndex], copy[i]];
+    }
+  }
+  return copy;
+}
+
+function itemsForMode(mode) {
+  if (mode === "cloze") return state.seed.cloze_questions;
+  if (mode === "original") return state.seed.original_questions;
+  if (mode === "false") return state.seed.generated_false_questions;
+  return state.seed.memory_points;
+}
+
+function itemId(item) {
+  if (state.mode === "cloze") return item.cloze_id;
+  if (state.mode === "original") return item.question_id;
+  if (state.mode === "false") return item.false_question_id;
+  return item.memory_id;
+}
+
+function sourceIdFor(item) {
+  return item.source_question_id || item.question_id;
+}
+
+function matchesField(item) {
+  return state.field === "all" || item.field === state.field;
+}
+
+function matchesReview(item) {
+  if (state.review === "all") return true;
+  const stats = progressFor(itemId(item));
+  if (state.review === "wrong") return stats.wrong > 0;
+  if (state.review === "weak") return stats.weak === true;
+  return true;
+}
+
+function renderCurrent() {
+  clearQuestion();
+  if (!state.seed) return;
+  if (!state.queue.length) {
+    el.modeBadge.textContent = MODE_LABELS[state.mode];
+    el.fieldBadge.textContent = state.field === "all" ? "全分野" : FIELD_LABELS[state.field];
+    el.progressBadge.textContent = "0 / 0";
+    el.questionArea.textContent = "該当する問題がありません。";
+    renderStats();
+    return;
+  }
+  state.answered = false;
+  const item = state.queue[state.currentIndex];
+  el.modeBadge.textContent = MODE_LABELS[state.mode];
+  el.fieldBadge.textContent = item.field ? FIELD_LABELS[item.field] : "-";
+  el.progressBadge.textContent = `${state.currentIndex + 1} / ${state.queue.length}`;
+  if (state.testSession) {
+    el.progressBadge.textContent = `テスト ${state.currentIndex + 1} / ${state.queue.length}`;
+  }
+
+  if (state.mode === "cloze") renderCloze(item);
+  if (state.mode === "original") renderOriginal(item);
+  if (state.mode === "false") renderFalse(item);
+  if (state.mode === "memory") renderMemory(item);
+  renderItemStats(item);
+}
+
+function clearQuestion() {
+  el.questionArea.innerHTML = "";
+  el.choicesArea.innerHTML = "";
+  el.resultArea.hidden = true;
+  el.resultArea.className = "result-area";
+  el.resultArea.textContent = "";
+  el.testSummaryArea.hidden = true;
+  el.testSummaryArea.innerHTML = "";
+  el.showAnswerBtn.hidden = true;
+  el.rememberBtn.hidden = true;
+  el.weakBtn.hidden = true;
+  el.wrongBtn.hidden = true;
+  el.nextBtn.textContent = "次へ";
+}
+
+function renderCloze(item) {
+  el.questionArea.textContent = item.prompt;
+  el.fieldBadge.textContent = FIELD_LABELS[item.field];
+  el.modeBadge.textContent = `${MODE_LABELS.cloze} / ${item.difficulty_level}`;
+  item.choices.forEach((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "choice-button";
+    button.textContent = choice;
+    button.addEventListener("click", () => answerCloze(item, choice));
+    el.choicesArea.append(button);
+  });
+}
+
+function answerCloze(item, choice) {
+  if (state.answered) return;
+  state.answered = true;
+  const correct = choice === item.answer;
+  saveAttempt(itemId(item), correct);
+  recordTestAnswer(item, correct);
+  [...el.choicesArea.children].forEach((button) => {
+    button.disabled = true;
+    if (button.textContent === item.answer) button.classList.add("correct");
+    if (button.textContent === choice && !correct) button.classList.add("incorrect");
+  });
+  el.resultArea.hidden = false;
+  el.resultArea.classList.add(correct ? "ok" : "bad");
+  el.resultArea.textContent = `${correct ? "正解" : "不正解"}\n答え: ${item.answer}\n${item.explanation || ""}`;
+  renderStats();
+  renderSummary();
+  renderItemStats(item);
+}
+
+function renderOriginal(item) {
+  el.questionArea.innerHTML = "";
+  const text = document.createElement("div");
+  text.textContent = item.question_text;
+  const meta = document.createElement("p");
+  meta.className = "subtle";
+  meta.textContent = `答え: ${item.answer || "-"} / review_status: ${item.review_status || "-"}`;
+  el.questionArea.append(text, meta);
+  el.showAnswerBtn.hidden = false;
+}
+
+function revealOriginal() {
+  const item = state.queue[state.currentIndex];
+  const memory = state.seed.memoryBySourceId[item.question_id];
+  el.resultArea.hidden = false;
+  el.resultArea.classList.add("warn");
+  el.resultArea.textContent = memory
+    ? `${memory.one_line_memory}\n\n${memory.why_true_short}\n\nFocus: ${memory.exam_focus}`
+    : "対応する memory_point がありません。";
+  el.rememberBtn.hidden = false;
+  el.weakBtn.hidden = false;
+  el.wrongBtn.hidden = false;
+}
+
+function renderFalse(item) {
+  el.questionArea.textContent = item.false_question_text;
+  ["○", "×"].forEach((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "choice-button";
+    button.textContent = choice;
+    button.addEventListener("click", () => answerFalse(item, choice));
+    el.choicesArea.append(button);
+  });
+}
+
+function answerFalse(item, choice) {
+  if (state.answered) return;
+  state.answered = true;
+  const correct = choice === "×";
+  saveAttempt(itemId(item), correct);
+  recordTestAnswer(item, correct);
+  [...el.choicesArea.children].forEach((button) => {
+    button.disabled = true;
+    if (button.textContent === "×") button.classList.add("correct");
+    if (button.textContent === choice && !correct) button.classList.add("incorrect");
+  });
+  const changed = item.changed_point || {};
+  el.resultArea.hidden = false;
+  el.resultArea.classList.add(correct ? "ok" : "bad");
+  el.resultArea.textContent = [
+    correct ? "正解" : "不正解",
+    `変更箇所: ${changed.original || "-"} → ${changed.changed_to || "-"}`,
+    `正しい事実: ${item.correct_fact || "-"}`,
+    `理由: ${item.why_false || "-"}`,
+  ].join("\n");
+  renderStats();
+  renderSummary();
+  renderItemStats(item);
+}
+
+function renderMemory(item) {
+  el.questionArea.innerHTML = "";
+  const title = document.createElement("h2");
+  title.textContent = item.memory_title;
+  const oneLine = document.createElement("p");
+  oneLine.textContent = item.one_line_memory;
+  const why = document.createElement("p");
+  why.textContent = item.why_true_short;
+  const focus = document.createElement("p");
+  focus.textContent = `Focus: ${item.exam_focus}`;
+  const terms = listBlock("key_terms", item.key_terms);
+  const traps = listBlock("trap_points", item.trap_points);
+  el.questionArea.append(title, oneLine, why, focus, terms, traps);
+  el.rememberBtn.hidden = false;
+  el.weakBtn.hidden = false;
+  el.wrongBtn.hidden = false;
+}
+
+function listBlock(label, values = []) {
+  const wrap = document.createElement("div");
+  const head = document.createElement("p");
+  head.className = "subtle";
+  head.textContent = label;
+  const list = document.createElement("ul");
+  list.className = "term-list";
+  values.forEach((value) => {
+    const li = document.createElement("li");
+    li.textContent = value;
+    list.append(li);
+  });
+  wrap.append(head, list);
+  return wrap;
+}
+
+function markSelfReview(result) {
+  const item = state.queue[state.currentIndex];
+  const id = itemId(item);
+  const stats = progressFor(id);
+  stats.attempts += 1;
+  stats.lastStudiedAt = new Date().toISOString();
+  if (result === "remembered") {
+    stats.correct += 1;
+    stats.weak = false;
+  }
+  if (result === "weak") {
+    stats.weak = true;
+  }
+  if (result === "wrong") {
+    stats.wrong += 1;
+    stats.weak = true;
+  }
+  incrementDaily(result === "remembered");
+  state.progress.items[id] = stats;
+  persistProgress();
+  recordTestAnswer(item, result === "remembered");
+  el.resultArea.hidden = false;
+  el.resultArea.classList.add(result === "wrong" ? "bad" : "ok");
+  el.resultArea.textContent = result === "remembered" ? "記録: 覚えた" : result === "weak" ? "記録: 怪しい" : "記録: 間違えた";
+  renderStats();
+  renderSummary();
+  renderItemStats(item);
+}
+
+function recordTestAnswer(item, correct) {
+  if (!state.testSession) return;
+  const id = itemId(item);
+  if (state.testSession.answeredIds.has(id)) return;
+  state.testSession.answeredIds.add(id);
+  if (correct) {
+    state.testSession.correct += 1;
+    return;
+  }
+  const source = state.seed.originalById[sourceIdFor(item)];
+  state.testSession.wrong.push({
+    id,
+    label: source ? `${FIELD_LABELS[source.field]} 問${source.question_number}` : id,
+  });
+}
+
+function renderTestSummary() {
+  clearQuestion();
+  const total = state.queue.length;
+  const correct = state.testSession?.correct || 0;
+  const rate = total ? Math.round((correct / total) * 100) : 0;
+  el.modeBadge.textContent = `${MODE_LABELS[state.mode]} テスト`;
+  el.fieldBadge.textContent = state.field === "all" ? "全分野" : FIELD_LABELS[state.field];
+  el.progressBadge.textContent = "終了";
+  el.questionArea.textContent = "テスト終了";
+  el.testSummaryArea.hidden = false;
+  state.testComplete = true;
+  const wrongItems = state.testSession?.wrong || [];
+  el.testSummaryArea.innerHTML = `
+    <h2>結果</h2>
+    <p>出題数: ${total}</p>
+    <p>正解数: ${correct}</p>
+    <p>正答率: ${rate}%</p>
+    <h2>間違えた問題</h2>
+    ${
+      wrongItems.length
+        ? `<ul>${wrongItems.map((item) => `<li>${escapeHtml(item.label)}</li>`).join("")}</ul>`
+        : "<p>なし</p>"
+    }
+  `;
+  el.nextBtn.textContent = "もう一度";
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
+    return map[char];
+  });
+}
+
+function saveAttempt(id, correct) {
+  const stats = progressFor(id);
+  stats.attempts += 1;
+  stats.lastStudiedAt = new Date().toISOString();
+  if (correct) {
+    stats.correct += 1;
+  } else {
+    stats.wrong += 1;
+    stats.weak = true;
+  }
+  incrementDaily(correct);
+  state.progress.items[id] = stats;
+  persistProgress();
+}
+
+function incrementDaily(correct) {
+  const today = todayKey();
+  if (!state.progress.daily) state.progress.daily = {};
+  const stats = state.progress.daily[today] || { attempts: 0, correct: 0, wrong: 0 };
+  stats.attempts += 1;
+  if (correct) stats.correct += 1;
+  else stats.wrong += 1;
+  state.progress.daily[today] = stats;
+}
+
+function progressFor(id) {
+  return {
+    attempts: 0,
+    correct: 0,
+    wrong: 0,
+    weak: false,
+    lastStudiedAt: null,
+    ...(state.progress.items[id] || {}),
+  };
+}
+
+function loadProgress() {
+  try {
+    const progress = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { items: {} };
+    return { items: {}, daily: {}, ...progress };
+  } catch {
+    return { items: {}, daily: {} };
+  }
+}
+
+function persistProgress() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progress));
+}
+
+function openSeedDb() {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in window)) {
+      reject(new Error("このブラウザはIndexedDBに対応していません。"));
+      return;
+    }
+    const request = indexedDB.open(SEED_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SEED_STORE_NAME)) {
+        db.createObjectStore(SEED_STORE_NAME, { keyPath: "key" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDBを開けませんでした。"));
+  });
+}
+
+async function loadSeedFromIndexedDb() {
+  const db = await openSeedDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEED_STORE_NAME, "readonly");
+    const store = transaction.objectStore(SEED_STORE_NAME);
+    const request = store.get(SEED_RECORD_KEY);
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result || null);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error || new Error("教材データを読み込めませんでした。"));
+    };
+  });
+}
+
+async function saveSeedToIndexedDb(seed, counts) {
+  const db = await openSeedDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEED_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(SEED_STORE_NAME);
+    store.put({
+      key: SEED_RECORD_KEY,
+      seed,
+      counts,
+      savedAt: new Date().toISOString(),
+    });
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error("教材データを保存できませんでした。"));
+    };
+  });
+}
+
+async function deleteSeedFromIndexedDb() {
+  const db = await openSeedDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(SEED_STORE_NAME, "readwrite");
+    transaction.objectStore(SEED_STORE_NAME).delete(SEED_RECORD_KEY);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error("教材データを削除できませんでした。"));
+    };
+  });
+}
+
+function todayKey() {
+  return dateKey(new Date().toISOString());
+}
+
+function dateKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function renderStats() {
+  const stats = Object.values(state.progress.items).reduce(
+    (acc, item) => {
+      acc.attempts += item.attempts || 0;
+      acc.correct += item.correct || 0;
+      acc.wrong += item.wrong || 0;
+      if (item.weak) acc.weak += 1;
+      return acc;
+    },
+    { attempts: 0, correct: 0, wrong: 0, weak: 0 },
+  );
+  el.statAttempts.textContent = stats.attempts;
+  el.statCorrect.textContent = stats.correct;
+  el.statWrong.textContent = stats.wrong;
+  el.statWeak.textContent = stats.weak;
+}
+
+function renderItemStats(item) {
+  const stats = progressFor(itemId(item));
+  const last = stats.lastStudiedAt ? new Date(stats.lastStudiedAt).toLocaleString() : "-";
+  const source = state.seed.originalById[sourceIdFor(item)];
+  el.currentItemStats.textContent = [
+    source ? `${FIELD_LABELS[source.field]} 問${source.question_number}` : "",
+    `この問題: ${stats.attempts}回 / 正解${stats.correct} / 間違い${stats.wrong}`,
+    `苦手: ${stats.weak ? "ON" : "OFF"}`,
+    `最終: ${last}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // PWA registration failure should not block local study.
+    });
+  });
+}

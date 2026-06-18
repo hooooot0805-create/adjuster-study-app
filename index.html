@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Study PWA</title>
+    <meta name="theme-color" content="#16a34a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Personal Study" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icon.svg" />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Personal Study</p>
+          <h1>Study PWA</h1>
+        </div>
+        <div id="loadStatus" class="status-pill">読み込み中</div>
+      </header>
+
+      <main>
+        <section class="summary-grid" aria-label="summary">
+          <div class="summary-item">
+            <span>今日の学習</span>
+            <strong id="todayAttempts">-</strong>
+          </div>
+          <div class="summary-item">
+            <span>正答率</span>
+            <strong id="todayAccuracy">-</strong>
+          </div>
+          <div class="summary-item">
+            <span>苦手</span>
+            <strong id="weakCount">-</strong>
+          </div>
+        </section>
+
+        <section id="setupPanel" class="setup-panel" hidden>
+          <h2>初回セットアップ</h2>
+          <p>
+            教材データをこの端末から読み込んでください。対象ファイルは
+            <strong>app_seed_v2.json</strong> です。Pixel 9で使う場合はPixel 9内のファイルを、
+            Macで確認する場合はMac内のファイルを選択してください。教材データはGitHub Pagesには置かず、
+            この端末のIndexedDBに保存します。
+          </p>
+          <div class="setup-actions">
+            <button id="loadSeedBtn" type="button" class="primary">教材データを読み込む</button>
+            <input id="seedFileInput" type="file" accept="application/json,.json" hidden />
+          </div>
+          <p id="setupMessage" class="setup-message">対象ファイル: app_seed_v2.json</p>
+          <div id="seedCounts" class="seed-counts" hidden></div>
+        </section>
+
+        <section id="controlPanel" class="control-panel" hidden>
+          <div class="control-group">
+            <label for="fieldSelect">分野</label>
+            <select id="fieldSelect">
+              <option value="all">全分野</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="modeSelect">モード</label>
+            <select id="modeSelect">
+              <option value="cloze">穴埋め4択</option>
+              <option value="original">原文○確認</option>
+              <option value="false">生成×問題</option>
+              <option value="memory">暗記カード</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="reviewSelect">復習</label>
+            <select id="reviewSelect">
+              <option value="all">全て</option>
+              <option value="wrong">間違えた問題</option>
+              <option value="weak">怪しい問題</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="testCountSelect">テスト</label>
+            <select id="testCountSelect">
+              <option value="practice">通常</option>
+              <option value="10">10問</option>
+              <option value="25">25問</option>
+              <option value="50">50問</option>
+            </select>
+          </div>
+
+          <button id="resetQueueBtn" type="button">先頭から</button>
+        </section>
+
+        <section id="studyLayout" class="study-layout" hidden>
+          <article class="study-card">
+            <div class="card-meta">
+              <span id="modeBadge">-</span>
+              <span id="fieldBadge">-</span>
+              <span id="progressBadge">-</span>
+            </div>
+
+            <section class="learning-section question-section">
+              <p class="section-label">問題</p>
+              <div id="questionArea" class="question-area"></div>
+            </section>
+            <section class="learning-section choice-section">
+              <p class="section-label">選択肢</p>
+              <div id="choicesArea" class="choices-area"></div>
+            </section>
+            <section class="learning-section explanation-section">
+              <p class="section-label">解説</p>
+              <div id="resultArea" class="result-area" hidden></div>
+            </section>
+            <div id="testSummaryArea" class="test-summary" hidden></div>
+
+            <div class="action-row">
+              <button id="showAnswerBtn" type="button" hidden>答えを見る</button>
+              <button id="rememberBtn" type="button" hidden>覚えた</button>
+              <button id="weakBtn" type="button" hidden>怪しい</button>
+              <button id="wrongBtn" type="button" hidden>間違えた</button>
+              <button id="nextBtn" type="button">次へ</button>
+            </div>
+          </article>
+
+          <aside class="side-panel">
+            <h2>学習状況</h2>
+            <dl class="stats-list">
+              <div>
+                <dt>解いた回数</dt>
+                <dd id="statAttempts">0</dd>
+              </div>
+              <div>
+                <dt>正解数</dt>
+                <dd id="statCorrect">0</dd>
+              </div>
+              <div>
+                <dt>間違えた回数</dt>
+                <dd id="statWrong">0</dd>
+              </div>
+              <div>
+                <dt>苦手</dt>
+                <dd id="statWeak">0</dd>
+              </div>
+            </dl>
+            <p id="currentItemStats" class="current-stats">-</p>
+          </aside>
+        </section>
+
+        <section id="dataPanel" class="data-panel" hidden>
+          <h2>教材データ管理</h2>
+          <div id="loadedSeedCounts" class="seed-counts"></div>
+          <div class="setup-actions">
+            <button id="checkUpdateBtn" type="button">アプリ更新を確認</button>
+            <button id="reloadAppBtn" type="button">アプリを再読み込み</button>
+            <button id="reloadSeedBtn" type="button">教材データ再読み込み</button>
+            <button id="deleteSeedBtn" type="button">教材データ削除</button>
+            <button id="resetProgressBtn" type="button">進捗リセット</button>
+          </div>
+          <p id="appUpdateMessage" class="setup-message">アプリ本体と教材データは別管理です。</p>
+        </section>
+      </main>
+    </div>
+
+    <script src="assets/app.js" defer></script>
+  </body>
+</html>
