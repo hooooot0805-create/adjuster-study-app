@@ -16,12 +16,12 @@ const MODE_LABELS = {
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
-const SEED_RECORD_KEY = "app_seed_v6";
-const DEV_SEED_URL = "data/app_seed/app_seed_v6.json";
+const SEED_RECORD_KEY = "app_seed_v7";
+const DEV_SEED_URL = "data/app_seed/app_seed_v7.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
-  cloze_questions: 3252,
+  cloze_questions: 2412,
   generated_false_questions: 947,
   test_sets: 57,
 };
@@ -104,7 +104,7 @@ async function init() {
       if (devSeedLoaded) return;
     }
 
-    showSetup("教材データが未読込です。app_seed_v6.json を選択してください。");
+    showSetup("教材データが未読込です。app_seed_v7.json を選択してください。");
   } catch (error) {
     showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
   }
@@ -272,7 +272,7 @@ function expectedLabel(expected) {
 async function deleteSeedData() {
   if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
   await deleteSeedFromIndexedDb();
-  showSetup("教材データを削除しました。再度 app_seed_v6.json を読み込んでください。");
+  showSetup("教材データを削除しました。再度 app_seed_v7.json を読み込んでください。");
 }
 
 async function checkAppUpdate() {
@@ -502,9 +502,11 @@ function renderOriginalChoice(item) {
   prompt.textContent = item.prompt;
   const note = document.createElement("p");
   note.className = "subtle";
-  note.textContent = item.answer_note || "原文選択問題です。現段階では自己確認用です。";
+  note.textContent = item.choices_need_source_image
+    ? "選択肢のOCRが不安定なため、原本ページ画像で選択肢を確認してください。"
+    : item.answer_note || "原文選択問題です。現段階では自己確認用です。";
   el.questionArea.append(prompt, note);
-  item.choices.forEach((choice) => {
+  (item.choices || []).forEach((choice) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "choice-button";
@@ -512,6 +514,12 @@ function renderOriginalChoice(item) {
     button.addEventListener("click", () => markOriginalChoiceChecked(item, button));
     el.choicesArea.append(button);
   });
+  if (!item.choices?.length) {
+    const info = document.createElement("p");
+    info.className = "subtle";
+    info.textContent = "この問題は選択問題です。選択肢は下の原本ページ画像で確認し、「答えを見る」で正解例を確認してください。";
+    el.choicesArea.append(info);
+  }
   appendSourceImage(item);
   el.showAnswerBtn.hidden = false;
   el.rememberBtn.hidden = false;
