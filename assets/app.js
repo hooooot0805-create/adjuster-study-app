@@ -16,8 +16,8 @@ const MODE_LABELS = {
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
-const SEED_RECORD_KEY = "app_seed_v4";
-const DEV_SEED_URL = "data/app_seed/app_seed_v4.json";
+const SEED_RECORD_KEY = "app_seed_v5";
+const DEV_SEED_URL = "data/app_seed/app_seed_v5.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
@@ -104,7 +104,7 @@ async function init() {
       if (devSeedLoaded) return;
     }
 
-    showSetup("教材データが未読込です。app_seed_v4.json を選択してください。");
+    showSetup("教材データが未読込です。app_seed_v5.json を選択してください。");
   } catch (error) {
     showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
   }
@@ -272,7 +272,7 @@ function expectedLabel(expected) {
 async function deleteSeedData() {
   if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
   await deleteSeedFromIndexedDb();
-  showSetup("教材データを削除しました。再度 app_seed_v4.json を読み込んでください。");
+  showSetup("教材データを削除しました。再度 app_seed_v5.json を読み込んでください。");
 }
 
 async function checkAppUpdate() {
@@ -513,6 +513,7 @@ function renderOriginalChoice(item) {
     el.choicesArea.append(button);
   });
   appendSourceImage(item);
+  el.showAnswerBtn.hidden = false;
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
   el.wrongBtn.hidden = false;
@@ -521,13 +522,27 @@ function renderOriginalChoice(item) {
 function markOriginalChoiceChecked(item, button) {
   [...el.choicesArea.children].forEach((node) => node.classList.remove("selected"));
   button.classList.add("selected");
+  const label = button.textContent.split(".")[0];
+  const correctLabels = (item.answer_keys || []).map((answer) => answer.answer);
+  if (correctLabels.includes(label)) button.classList.add("correct");
   el.resultArea.hidden = false;
   el.resultArea.classList.add("warn");
-  el.resultArea.textContent = item.answer_note || "原文の選択肢を確認しました。正答キー未保持のため自己採点してください。";
+  el.resultArea.textContent = `選択: ${button.textContent}\n${item.answer_note || "正答キー未保持のため自己採点してください。"}`;
 }
 
 function revealOriginal() {
   const item = state.queue[state.currentIndex];
+  if (state.mode === "originalChoice") {
+    el.resultArea.hidden = false;
+    el.resultArea.classList.add(item.answer_raw ? "ok" : "warn");
+    el.resultArea.textContent = item.answer_raw
+      ? `正解例: ${item.answer_raw}`
+      : "この選択問題の正答キーはまだ教材データにありません。";
+    el.rememberBtn.hidden = false;
+    el.weakBtn.hidden = false;
+    el.wrongBtn.hidden = false;
+    return;
+  }
   const memory = state.seed.memoryBySourceId[item.question_id];
   el.resultArea.hidden = false;
   el.resultArea.classList.add("warn");
