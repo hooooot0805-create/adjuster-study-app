@@ -10,6 +10,7 @@ __pycache__/
 # 教材由来データはすべて機密。Git管理・外部公開しない。
 data/app_seed/app_seed_v1.json
 data/app_seed/app_seed_v2.json
+data/app_seed/app_seed_v3.json
 data/original_questions_draft.json
 data/pilot_A/
 data/pilot_B/

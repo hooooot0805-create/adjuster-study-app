@@ -15,12 +15,12 @@ const MODE_LABELS = {
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
-const SEED_RECORD_KEY = "app_seed_v2";
-const DEV_SEED_URL = "data/app_seed/app_seed_v2.json";
+const SEED_RECORD_KEY = "app_seed_v3";
+const DEV_SEED_URL = "data/app_seed/app_seed_v3.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
-  cloze_questions: 2057,
+  cloze_questions: 3788,
   generated_false_questions: 947,
   test_sets: 57,
 };
@@ -103,7 +103,7 @@ async function init() {
       if (devSeedLoaded) return;
     }
 
-    showSetup("教材データが未読込です。app_seed_v2.json を選択してください。");
+    showSetup("教材データが未読込です。app_seed_v3.json を選択してください。");
   } catch (error) {
     showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
   }
@@ -271,7 +271,7 @@ function expectedLabel(expected) {
 async function deleteSeedData() {
   if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
   await deleteSeedFromIndexedDb();
-  showSetup("教材データを削除しました。再度 app_seed_v2.json を読み込んでください。");
+  showSetup("教材データを削除しました。再度 app_seed_v3.json を読み込んでください。");
 }
 
 async function checkAppUpdate() {

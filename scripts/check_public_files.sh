@@ -47,8 +47,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     '^work/'
     '^handoff/'
     '^PRIVATE_NOTES\.md$'
-    'app_seed_v1\.json$'
-    'app_seed_v2\.json$'
+    'app_seed_v[0-9]+\.json$'
     '\.pdf$'
     '\.png$'
     '\.jpg$'
@@ -74,6 +73,7 @@ readme_forbidden=(
   'app_seed_v'
   '947'
   '2057'
+  '3788'
   '原文DB'
   'OCR'
   'PDF'
@@ -87,7 +87,7 @@ for word in "${readme_forbidden[@]}"; do
   fi
 done
 
-if grep -Eq 'data/app_seed|app_seed_v[12]\.json' sw.js; then
+if grep -Eq 'data/app_seed|app_seed_v[0-9]+\.json' sw.js; then
   fail "Service Worker must not reference seed JSON"
 fi
 
@@ -95,7 +95,7 @@ if grep -Eq 'data/app_seed' index.html; then
   fail "index.html should not reference bundled seed paths"
 fi
 
-if grep -Eq 'data/app_seed/app_seed_v2\.json' assets/app.js; then
+if grep -Eq 'data/app_seed/app_seed_v[0-9]+\.json' assets/app.js; then
   if ! grep -q 'isDevSeedFetchEnabled' assets/app.js; then
     fail "app.js seed fetch path exists without dev gate"
   fi
