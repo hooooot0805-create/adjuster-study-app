@@ -74,6 +74,7 @@ readme_forbidden=(
   '947'
   '2057'
   '3788'
+  '3252'
   '原文DB'
   'OCR'
   'PDF'

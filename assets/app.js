@@ -21,7 +21,7 @@ const DEV_SEED_URL = "data/app_seed/app_seed_v4.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
-  cloze_questions: 3788,
+  cloze_questions: 3252,
   generated_false_questions: 947,
   test_sets: 57,
 };
