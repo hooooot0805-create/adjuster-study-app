@@ -42,7 +42,7 @@
           <h2>初回セットアップ</h2>
           <p>
             教材データをこの端末から読み込んでください。対象ファイルは
-            <strong>app_seed_v3.json</strong> です。Pixel 9で使う場合はPixel 9内のファイルを、
+            <strong>app_seed_v4.json</strong> です。Pixel 9で使う場合はPixel 9内のファイルを、
             Macで確認する場合はMac内のファイルを選択してください。教材データはGitHub Pagesには置かず、
             この端末のIndexedDBに保存します。
           </p>
@@ -50,7 +50,7 @@
             <button id="loadSeedBtn" type="button" class="primary">教材データを読み込む</button>
             <input id="seedFileInput" type="file" accept="application/json,.json" hidden />
           </div>
-          <p id="setupMessage" class="setup-message">対象ファイル: app_seed_v3.json</p>
+          <p id="setupMessage" class="setup-message">対象ファイル: app_seed_v4.json</p>
           <div id="seedCounts" class="seed-counts" hidden></div>
         </section>
 
@@ -70,6 +70,7 @@
             <label for="modeSelect">モード</label>
             <select id="modeSelect">
               <option value="cloze">穴埋め4択</option>
+              <option value="originalChoice">原文選択確認</option>
               <option value="original">原文○確認</option>
               <option value="false">生成×問題</option>
               <option value="memory">暗記カード</option>

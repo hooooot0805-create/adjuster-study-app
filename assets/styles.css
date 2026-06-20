@@ -444,6 +444,30 @@ h2 {
   font-size: 13px;
 }
 
+.source-image-panel {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 10px;
+}
+
+.source-image-panel summary {
+  cursor: pointer;
+  color: var(--focus);
+  font-weight: 700;
+}
+
+.source-image-panel img {
+  display: block;
+  width: 100%;
+  max-height: 78vh;
+  object-fit: contain;
+  margin-top: 12px;
+  border-radius: var(--radius);
+  background: #fff;
+}
+
 @media (max-width: 820px) {
   .app-shell {
     padding: 12px;

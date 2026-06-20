@@ -7,6 +7,7 @@ const FIELD_LABELS = {
 
 const MODE_LABELS = {
   cloze: "穴埋め4択",
+  originalChoice: "原文選択確認",
   original: "原文○確認",
   false: "生成×問題",
   memory: "暗記カード",
@@ -15,8 +16,8 @@ const MODE_LABELS = {
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
-const SEED_RECORD_KEY = "app_seed_v3";
-const DEV_SEED_URL = "data/app_seed/app_seed_v3.json";
+const SEED_RECORD_KEY = "app_seed_v4";
+const DEV_SEED_URL = "data/app_seed/app_seed_v4.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
@@ -103,7 +104,7 @@ async function init() {
       if (devSeedLoaded) return;
     }
 
-    showSetup("教材データが未読込です。app_seed_v3.json を選択してください。");
+    showSetup("教材データが未読込です。app_seed_v4.json を選択してください。");
   } catch (error) {
     showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
   }
@@ -271,7 +272,7 @@ function expectedLabel(expected) {
 async function deleteSeedData() {
   if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
   await deleteSeedFromIndexedDb();
-  showSetup("教材データを削除しました。再度 app_seed_v3.json を読み込んでください。");
+  showSetup("教材データを削除しました。再度 app_seed_v4.json を読み込んでください。");
 }
 
 async function checkAppUpdate() {
@@ -311,6 +312,8 @@ function indexSeed(seed) {
   seed.memoryBySourceId = Object.fromEntries(seed.memory_points.map((item) => [item.source_question_id, item]));
   seed.clozeBySourceId = groupBy(seed.cloze_questions, "source_question_id");
   seed.falseBySourceId = groupBy(seed.generated_false_questions, "source_question_id");
+  seed.original_choice_questions = seed.original_choice_questions || [];
+  seed.source_images = seed.source_images || {};
 }
 
 function groupBy(items, key) {
@@ -374,6 +377,7 @@ function shuffleItems(items) {
 
 function itemsForMode(mode) {
   if (mode === "cloze") return state.seed.cloze_questions;
+  if (mode === "originalChoice") return state.seed.original_choice_questions || [];
   if (mode === "original") return state.seed.original_questions;
   if (mode === "false") return state.seed.generated_false_questions;
   return state.seed.memory_points;
@@ -381,6 +385,7 @@ function itemsForMode(mode) {
 
 function itemId(item) {
   if (state.mode === "cloze") return item.cloze_id;
+  if (state.mode === "originalChoice") return item.original_choice_id;
   if (state.mode === "original") return item.question_id;
   if (state.mode === "false") return item.false_question_id;
   return item.memory_id;
@@ -423,6 +428,7 @@ function renderCurrent() {
   }
 
   if (state.mode === "cloze") renderCloze(item);
+  if (state.mode === "originalChoice") renderOriginalChoice(item);
   if (state.mode === "original") renderOriginal(item);
   if (state.mode === "false") renderFalse(item);
   if (state.mode === "memory") renderMemory(item);
@@ -446,6 +452,7 @@ function clearQuestion() {
 
 function renderCloze(item) {
   el.questionArea.textContent = item.prompt;
+  appendSourceImage(item);
   el.fieldBadge.textContent = FIELD_LABELS[item.field];
   el.modeBadge.textContent = `${MODE_LABELS.cloze} / ${item.difficulty_level}`;
   item.choices.forEach((choice) => {
@@ -485,7 +492,38 @@ function renderOriginal(item) {
   meta.className = "subtle";
   meta.textContent = `答え: ${item.answer || "-"} / review_status: ${item.review_status || "-"}`;
   el.questionArea.append(text, meta);
+  appendSourceImage(item);
   el.showAnswerBtn.hidden = false;
+}
+
+function renderOriginalChoice(item) {
+  el.questionArea.innerHTML = "";
+  const prompt = document.createElement("div");
+  prompt.textContent = item.prompt;
+  const note = document.createElement("p");
+  note.className = "subtle";
+  note.textContent = item.answer_note || "原文選択問題です。現段階では自己確認用です。";
+  el.questionArea.append(prompt, note);
+  item.choices.forEach((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "choice-button";
+    button.textContent = `${choice.label}. ${choice.text}`;
+    button.addEventListener("click", () => markOriginalChoiceChecked(item, button));
+    el.choicesArea.append(button);
+  });
+  appendSourceImage(item);
+  el.rememberBtn.hidden = false;
+  el.weakBtn.hidden = false;
+  el.wrongBtn.hidden = false;
+}
+
+function markOriginalChoiceChecked(item, button) {
+  [...el.choicesArea.children].forEach((node) => node.classList.remove("selected"));
+  button.classList.add("selected");
+  el.resultArea.hidden = false;
+  el.resultArea.classList.add("warn");
+  el.resultArea.textContent = item.answer_note || "原文の選択肢を確認しました。正答キー未保持のため自己採点してください。";
 }
 
 function revealOriginal() {
@@ -503,6 +541,7 @@ function revealOriginal() {
 
 function renderFalse(item) {
   el.questionArea.textContent = item.false_question_text;
+  appendSourceImage(item);
   ["○", "×"].forEach((choice) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -551,9 +590,27 @@ function renderMemory(item) {
   const terms = listBlock("key_terms", item.key_terms);
   const traps = listBlock("trap_points", item.trap_points);
   el.questionArea.append(title, oneLine, why, focus, terms, traps);
+  appendSourceImage(item);
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
   el.wrongBtn.hidden = false;
+}
+
+function appendSourceImage(item) {
+  const source = state.seed.originalById?.[sourceIdFor(item)];
+  const sourceImage = source?.source_image;
+  const dataUrl = sourceImage ? state.seed.source_images?.[sourceImage] : null;
+  if (!dataUrl) return;
+  const details = document.createElement("details");
+  details.className = "source-image-panel";
+  const summary = document.createElement("summary");
+  summary.textContent = "原本ページ画像を表示";
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.alt = `${source.field} 問${source.question_number} 原本ページ`;
+  img.loading = "lazy";
+  details.append(summary, img);
+  el.questionArea.append(details);
 }
 
 function listBlock(label, values = []) {
