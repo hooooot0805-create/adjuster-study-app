@@ -45,3 +45,5 @@ scripts/smoke_test_mvp.js
 *.backup
 **/backups/
 **/*.previous
+
+data/app_seed/app_seed_v8.json
