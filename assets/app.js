@@ -16,8 +16,8 @@ const MODE_LABELS = {
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
-const SEED_RECORD_KEY = "app_seed_v8";
-const DEV_SEED_URL = "data/app_seed/app_seed_v8.json";
+const SEED_RECORD_KEY = "app_seed_v9";
+const DEV_SEED_URL = "data/app_seed/app_seed_v9.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
@@ -104,7 +104,7 @@ async function init() {
       if (devSeedLoaded) return;
     }
 
-    showSetup("教材データが未読込です。app_seed_v8.json を選択してください。");
+    showSetup("教材データが未読込です。app_seed_v9.json を選択してください。");
   } catch (error) {
     showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
   }
@@ -272,7 +272,7 @@ function expectedLabel(expected) {
 async function deleteSeedData() {
   if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
   await deleteSeedFromIndexedDb();
-  showSetup("教材データを削除しました。再度 app_seed_v8.json を読み込んでください。");
+  showSetup("教材データを削除しました。再度 app_seed_v9.json を読み込んでください。");
 }
 
 async function checkAppUpdate() {
@@ -506,13 +506,42 @@ function renderOriginalChoice(item) {
     ? "選択肢のOCRが不安定なため、原本ページ画像で選択肢を確認してください。"
     : item.answer_note || "原文選択問題です。現段階では自己確認用です。";
   el.questionArea.append(prompt, note);
+
+  const answerPanel = document.createElement("div");
+  answerPanel.className = "answer-slots";
+  const answerTitle = document.createElement("h3");
+  answerTitle.textContent = "回答欄";
+  answerPanel.append(answerTitle);
+  const keys = item.answer_keys || [];
+  if (keys.length) {
+    keys.forEach((key, index) => {
+      const row = document.createElement("div");
+      row.className = "answer-slot";
+      const label = document.createElement("span");
+      label.textContent = key.blank ? `${key.blank}` : `正解${index + 1}`;
+      const value = document.createElement("strong");
+      value.dataset.answer = key.answer;
+      value.textContent = "答えを見る";
+      row.append(label, value);
+      answerPanel.append(row);
+    });
+  } else {
+    const row = document.createElement("p");
+    row.className = "subtle";
+    row.textContent = "正答キー未保持のため、原本ページ画像で自己確認してください。";
+    answerPanel.append(row);
+  }
+  el.choicesArea.append(answerPanel);
+
+  const choicesTitle = document.createElement("h3");
+  choicesTitle.className = "choices-title";
+  choicesTitle.textContent = "選択肢";
+  el.choicesArea.append(choicesTitle);
   (item.choices || []).forEach((choice) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "choice-button";
-    button.textContent = `${choice.label}. ${choice.text}`;
-    button.addEventListener("click", () => markOriginalChoiceChecked(item, button));
-    el.choicesArea.append(button);
+    const choiceLine = document.createElement("div");
+    choiceLine.className = "choice-reference";
+    choiceLine.textContent = `${choice.label}. ${choice.text}`;
+    el.choicesArea.append(choiceLine);
   });
   if (!item.choices?.length) {
     const info = document.createElement("p");
@@ -527,20 +556,13 @@ function renderOriginalChoice(item) {
   el.wrongBtn.hidden = false;
 }
 
-function markOriginalChoiceChecked(item, button) {
-  [...el.choicesArea.children].forEach((node) => node.classList.remove("selected"));
-  button.classList.add("selected");
-  const label = button.textContent.split(".")[0];
-  const correctLabels = (item.answer_keys || []).map((answer) => answer.answer);
-  if (correctLabels.includes(label)) button.classList.add("correct");
-  el.resultArea.hidden = false;
-  el.resultArea.classList.add("warn");
-  el.resultArea.textContent = `選択: ${button.textContent}\n${item.answer_note || "正答キー未保持のため自己採点してください。"}`;
-}
-
 function revealOriginal() {
   const item = state.queue[state.currentIndex];
   if (state.mode === "originalChoice") {
+    el.choicesArea.querySelectorAll("[data-answer]").forEach((node) => {
+      const label = node.dataset.answer;
+      node.textContent = `${label}${choiceTextForLabel(item, label)}`;
+    });
     el.resultArea.hidden = false;
     el.resultArea.classList.add(item.answer_raw ? "ok" : "warn");
     el.resultArea.textContent = item.answer_raw
@@ -560,6 +582,11 @@ function revealOriginal() {
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
   el.wrongBtn.hidden = false;
+}
+
+function choiceTextForLabel(item, label) {
+  const choice = (item.choices || []).find((candidate) => candidate.label === label);
+  return choice ? `（${choice.text}）` : "";
 }
 
 function renderFalse(item) {
@@ -621,18 +648,26 @@ function renderMemory(item) {
 
 function appendSourceImage(item) {
   const source = state.seed.originalById?.[sourceIdFor(item)];
-  const sourceImage = source?.source_image;
-  const dataUrl = sourceImage ? state.seed.source_images?.[sourceImage] : null;
-  if (!dataUrl) return;
+  const sourceImages = [...new Set([...(source?.figure_refs || []), source?.source_image].filter(Boolean))];
+  const availableImages = sourceImages
+    .map((sourceImage) => ({ sourceImage, dataUrl: state.seed.source_images?.[sourceImage] }))
+    .filter((entry) => entry.dataUrl);
+  if (!availableImages.length) return;
   const details = document.createElement("details");
   details.className = "source-image-panel";
   const summary = document.createElement("summary");
-  summary.textContent = "原本ページ画像を表示";
-  const img = document.createElement("img");
-  img.src = dataUrl;
-  img.alt = `${source.field} 問${source.question_number} 原本ページ`;
-  img.loading = "lazy";
-  details.append(summary, img);
+  summary.textContent = availableImages.length > 1 ? `原本ページ画像を表示（${availableImages.length}枚）` : "原本ページ画像を表示";
+  details.append(summary);
+  availableImages.forEach((entry, index) => {
+    const label = document.createElement("p");
+    label.className = "source-image-label";
+    label.textContent = `${source.field} 問${source.question_number} 原本ページ ${index + 1}`;
+    const img = document.createElement("img");
+    img.src = entry.dataUrl;
+    img.alt = `${source.field} 問${source.question_number} 原本ページ ${index + 1}`;
+    img.loading = "lazy";
+    details.append(label, img);
+  });
   el.questionArea.append(details);
 }
 
