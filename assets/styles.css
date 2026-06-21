@@ -545,6 +545,24 @@ h2 {
   font-weight: 700;
 }
 
+.term-help-panel.compact {
+  margin-top: 12px;
+  padding: 6px 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.term-help-panel.compact summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--panel-soft);
+  font-size: 13px;
+}
+
 .term-help-list {
   display: grid;
   gap: 10px;
@@ -566,6 +584,35 @@ h2 {
 
 .term-help-card p {
   margin: 4px 0;
+}
+
+.memory-point-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.memory-answer {
+  margin: 0;
+  font-weight: 900;
+  font-size: 18px;
+}
+
+.memory-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 12px;
+}
+
+.memory-section h3 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.memory-section p {
+  margin: 0;
+  line-height: 1.75;
 }
 
 .term-labels {

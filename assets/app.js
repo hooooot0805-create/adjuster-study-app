@@ -31,6 +31,15 @@ const EXPECTED_SEED_COUNTS = {
 };
 const REQUIRED_SEED_KEYS = ["original_questions", "memory_points", "cloze_questions", "generated_false_questions", "test_sets"];
 const V10_SEED_KEYS = ["multi_cloze_questions", "term_candidates"];
+const GENERIC_MEMORY_TEXTS = new Set([
+  "原文で示された条件、対象範囲、役割の組合せとして成立するため。",
+  "原文中の重要語、数値、対象範囲、役割の対応",
+]);
+const GENERIC_TRAP_POINTS = new Set([
+  "対象範囲を広げすぎない",
+  "数値・単位・大小関係を入れ替えない",
+  "似た名称や近い部品名と混同しない",
+]);
 
 const state = {
   seed: null,
@@ -606,6 +615,7 @@ function renderOriginal(item) {
   el.questionArea.append(text, meta);
   appendSourceImage(item);
   appendTermHelp(item);
+  el.showAnswerBtn.textContent = "覚えるポイントを見る";
   el.showAnswerBtn.hidden = false;
 }
 
@@ -664,6 +674,7 @@ function renderOriginalChoice(item) {
   }
   appendSourceImage(item);
   appendTermHelp(item);
+  el.showAnswerBtn.textContent = "答えを見る";
   el.showAnswerBtn.hidden = false;
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
@@ -688,14 +699,93 @@ function revealOriginal() {
     return;
   }
   const memory = state.seed.memoryBySourceId[item.question_id];
+  const memoryPanel = buildOriginalMemoryPanel(item, memory);
   el.resultArea.hidden = false;
-  el.resultArea.classList.add("warn");
-  el.resultArea.textContent = memory
-    ? `${memory.one_line_memory}\n\n${memory.why_true_short}\n\nFocus: ${memory.exam_focus}`
-    : "対応する memory_point がありません。";
+  el.resultArea.className = "result-area ok";
+  el.resultArea.innerHTML = "";
+  el.resultArea.append(memoryPanel);
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
   el.wrongBtn.hidden = false;
+}
+
+function buildOriginalMemoryPanel(item, memory) {
+  const panel = document.createElement("div");
+  panel.className = "memory-point-panel";
+  const answer = document.createElement("p");
+  answer.className = "memory-answer";
+  answer.textContent = `答え: ${item.answer || "○"}`;
+  panel.append(answer);
+
+  if (item.review_status) {
+    const status = document.createElement("p");
+    status.className = "subtle";
+    status.textContent = `review_status: ${item.review_status}`;
+    panel.append(status);
+  }
+
+  if (!memory) {
+    panel.append(fallbackMemoryMessage());
+    return panel;
+  }
+
+  const usable = normalizedMemory(memory);
+  let hasUsefulMemory = false;
+  if (usable.oneLine) {
+    panel.append(memorySection("一言ポイント", usable.oneLine));
+    hasUsefulMemory = true;
+  }
+  if (usable.why) {
+    panel.append(memorySection("なぜ○か", usable.why));
+    hasUsefulMemory = true;
+  }
+  if (usable.keyTerms.length) {
+    panel.append(listBlock("key_terms", usable.keyTerms));
+    hasUsefulMemory = true;
+  }
+  if (usable.trapPoints.length) {
+    panel.append(listBlock("trap_points", usable.trapPoints));
+    hasUsefulMemory = true;
+  }
+  if (usable.examFocus) {
+    panel.append(memorySection("exam_focus", usable.examFocus));
+    hasUsefulMemory = true;
+  }
+  if (!hasUsefulMemory) panel.append(fallbackMemoryMessage());
+  return panel;
+}
+
+function memorySection(label, value) {
+  const section = document.createElement("section");
+  section.className = "memory-section";
+  const title = document.createElement("h3");
+  title.textContent = label;
+  const body = document.createElement("p");
+  body.textContent = value;
+  section.append(title, body);
+  return section;
+}
+
+function fallbackMemoryMessage() {
+  const message = document.createElement("p");
+  message.textContent = "この問題の個別解説は未作成です。原文の重要語・条件・対象範囲を確認してください。";
+  return message;
+}
+
+function normalizedMemory(memory) {
+  const oneLine = isGenericMemoryText(memory.one_line_memory) ? "" : memory.one_line_memory || "";
+  const why = isGenericMemoryText(memory.why_true_short) ? "" : memory.why_true_short || "";
+  const examFocus = isGenericMemoryText(memory.exam_focus) ? "" : memory.exam_focus || "";
+  const keyTerms = usefulTerms(memory.key_terms || []);
+  const trapPoints = (memory.trap_points || []).filter((point) => !GENERIC_TRAP_POINTS.has(point));
+  return { oneLine, why, keyTerms, trapPoints, examFocus };
+}
+
+function isGenericMemoryText(value) {
+  const text = String(value || "").trim();
+  if (!text) return true;
+  if (GENERIC_MEMORY_TEXTS.has(text)) return true;
+  return /^[A-D]問\d+は、.+に関する原文の条件・対象・役割を押さえる。$/.test(text);
 }
 
 function choiceTextForLabel(item, label) {
@@ -791,16 +881,17 @@ function appendTermHelp(item) {
   if (!state.seed?.term_candidates?.length) return;
   const candidates = termHelpCandidates(item);
   const keyTerms = termHelpKeyTerms(item);
+  const relatedIds = termHelpRelatedIds(item);
   const comparisonTerms = uniqueStrings([
     ...(item.comparison_needed_terms || []),
     ...candidates.flatMap((candidate) => candidate.likely_compare_with || []),
   ]).slice(0, 8);
-  if (!candidates.length && !keyTerms.length && !comparisonTerms.length) return;
+  if (!candidates.length && !keyTerms.length && !comparisonTerms.length && !relatedIds.length) return;
 
   const details = document.createElement("details");
-  details.className = "term-help-panel";
+  details.className = "term-help-panel compact";
   const summary = document.createElement("summary");
-  summary.textContent = "この問題の用語を見る";
+  summary.textContent = "用語ヘルプ";
   details.append(summary);
 
   const notice = document.createElement("p");
@@ -814,11 +905,14 @@ function appendTermHelp(item) {
   if (comparisonTerms.length) {
     details.append(listBlock("comparison_needed_terms", comparisonTerms));
   }
+  if (relatedIds.length) {
+    details.append(listBlock("related_term_ids", relatedIds.slice(0, 8)));
+  }
 
   if (candidates.length) {
     const list = document.createElement("div");
     list.className = "term-help-list";
-    candidates.slice(0, 10).forEach((candidate) => {
+    candidates.slice(0, 6).forEach((candidate) => {
       const card = document.createElement("article");
       card.className = "term-help-card";
       const labels = [];
@@ -826,8 +920,10 @@ function appendTermHelp(item) {
       if (candidate.comparison_needed) labels.push("比較注意");
       card.innerHTML = `
         <h3>${escapeHtml(candidate.term)}</h3>
-        <p>${escapeHtml(candidate.category || "-")} / importance: ${escapeHtml(candidate.importance || "-")} / priority: ${escapeHtml(candidate.review_priority || "-")}</p>
-        <p>${escapeHtml(candidate.candidate_reason || "")}</p>
+        <p>category: ${escapeHtml(candidate.category || "-")}</p>
+        <p>importance: ${escapeHtml(candidate.importance || "-")}</p>
+        <p>definition_risk: ${escapeHtml(candidate.definition_risk || "-")}</p>
+        <p>comparison_needed: ${candidate.comparison_needed ? "true" : "false"}</p>
         ${
           labels.length
             ? `<p class="term-labels">${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</p>`
@@ -838,7 +934,6 @@ function appendTermHelp(item) {
             ? `<p>似た用語: ${escapeHtml(candidate.likely_compare_with.join(" / "))}</p>`
             : ""
         }
-        <p class="subtle">source_question_ids: ${escapeHtml((candidate.source_question_ids || []).slice(0, 6).join(", "))}</p>
       `;
       list.append(card);
     });
@@ -887,11 +982,28 @@ function termHelpKeyTerms(item) {
   const source = state.seed.originalById?.[sourceId];
   const memory = source ? state.seed.memoryBySourceId?.[source.question_id] : null;
   const multi = source ? state.seed.multiClozeBySourceId?.[source.question_id]?.[0] : null;
-  return uniqueStrings([
+  return usefulTerms([
     ...(item.key_terms || []),
     ...(memory?.key_terms || []),
     ...(multi?.key_terms || []),
   ]);
+}
+
+function termHelpRelatedIds(item) {
+  const sourceId = sourceIdFor(item);
+  const source = state.seed.originalById?.[sourceId];
+  const multi = source ? state.seed.multiClozeBySourceId?.[source.question_id]?.[0] : null;
+  return uniqueStrings([...(item.related_term_ids || []), ...(multi?.related_term_ids || [])]);
+}
+
+function usefulTerms(values) {
+  return uniqueStrings(values).filter((value) => {
+    if (/^[\d.]+$/.test(value)) return false;
+    if (/^[a-zA-Z]$/.test(value)) return false;
+    if (/^[a-zA-Z/]+$/.test(value) && value.length <= 4) return false;
+    if (/^[\d.]+(?:m|km|N|J|W|s|kg|kN|km\/h|m\/s|m\/s²)$/.test(value)) return false;
+    return true;
+  });
 }
 
 function uniqueBy(items, key) {
