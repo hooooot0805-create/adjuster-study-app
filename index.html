@@ -42,7 +42,7 @@
           <h2>初回セットアップ</h2>
           <p>
             教材データをこの端末から読み込んでください。対象ファイルは
-            <strong>app_seed_v9.json</strong> です。Pixel 9で使う場合はPixel 9内のファイルを、
+            <strong>app_seed_v10.json</strong> です。Pixel 9で使う場合はPixel 9内のファイルを、
             Macで確認する場合はMac内のファイルを選択してください。教材データはGitHub Pagesには置かず、
             この端末のIndexedDBに保存します。
           </p>
@@ -50,7 +50,7 @@
             <button id="loadSeedBtn" type="button" class="primary">教材データを読み込む</button>
             <input id="seedFileInput" type="file" accept="application/json,.json" hidden />
           </div>
-          <p id="setupMessage" class="setup-message">対象ファイル: app_seed_v9.json</p>
+          <p id="setupMessage" class="setup-message">対象ファイル: app_seed_v10.json</p>
           <div id="seedCounts" class="seed-counts" hidden></div>
         </section>
 
@@ -69,7 +69,7 @@
           <div class="control-group">
             <label for="modeSelect">モード</label>
             <select id="modeSelect">
-              <option value="cloze">穴埋め4択</option>
+              <option value="multiCloze">複数穴埋め</option>
               <option value="originalChoice">原文選択確認</option>
               <option value="original">原文○確認</option>
               <option value="false">生成×問題</option>
@@ -97,6 +97,7 @@
           </div>
 
           <button id="resetQueueBtn" type="button">先頭から</button>
+          <button id="reloadSeedTopBtn" type="button" class="secondary">教材データ再読み込み</button>
         </section>
 
         <section id="studyLayout" class="study-layout" hidden>
@@ -151,6 +152,8 @@
               </div>
             </dl>
             <p id="currentItemStats" class="current-stats">-</p>
+            <button id="reloadSeedSideBtn" type="button" class="secondary wide-button">教材データ再読み込み</button>
+            <button id="resetProgressSideBtn" type="button" class="secondary wide-button">学習状況をリセット</button>
           </aside>
         </section>
 

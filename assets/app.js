@@ -6,7 +6,7 @@ const FIELD_LABELS = {
 };
 
 const MODE_LABELS = {
-  cloze: "穴埋め4択",
+  multiCloze: "複数穴埋め",
   originalChoice: "原文選択確認",
   original: "原文○確認",
   false: "生成×問題",
@@ -16,21 +16,27 @@ const MODE_LABELS = {
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
-const SEED_RECORD_KEY = "app_seed_v9";
-const DEV_SEED_URL = "data/app_seed/app_seed_v9.json";
+const SEED_RECORD_KEY = "app_seed_v10";
+const LEGACY_SEED_RECORD_KEYS = ["app_seed_v9", "app_seed_v6", "app_seed_v2"];
+const DEV_SEED_URL = "data/app_seed/app_seed_v10.json";
 const EXPECTED_SEED_COUNTS = {
   original_questions: 947,
   memory_points: 947,
   cloze_questions: 2412,
   generated_false_questions: 947,
   test_sets: 57,
+  original_choice_questions: 344,
+  multi_cloze_questions: 947,
+  term_candidates: 3005,
 };
+const REQUIRED_SEED_KEYS = ["original_questions", "memory_points", "cloze_questions", "generated_false_questions", "test_sets"];
+const V10_SEED_KEYS = ["multi_cloze_questions", "term_candidates"];
 
 const state = {
   seed: null,
   seedCounts: null,
   progress: loadProgress(),
-  mode: "cloze",
+  mode: "multiCloze",
   field: "all",
   review: "all",
   testCount: "practice",
@@ -39,6 +45,7 @@ const state = {
   queue: [],
   currentIndex: 0,
   answered: false,
+  multiSelections: {},
 };
 
 const el = {
@@ -54,8 +61,11 @@ const el = {
   reloadAppBtn: document.querySelector("#reloadAppBtn"),
   loadSeedBtn: document.querySelector("#loadSeedBtn"),
   reloadSeedBtn: document.querySelector("#reloadSeedBtn"),
+  reloadSeedTopBtn: document.querySelector("#reloadSeedTopBtn"),
+  reloadSeedSideBtn: document.querySelector("#reloadSeedSideBtn"),
   deleteSeedBtn: document.querySelector("#deleteSeedBtn"),
   resetProgressBtn: document.querySelector("#resetProgressBtn"),
+  resetProgressSideBtn: document.querySelector("#resetProgressSideBtn"),
   seedFileInput: document.querySelector("#seedFileInput"),
   setupMessage: document.querySelector("#setupMessage"),
   appUpdateMessage: document.querySelector("#appUpdateMessage"),
@@ -96,6 +106,9 @@ async function init() {
     const stored = await loadSeedFromIndexedDb();
     if (stored) {
       activateSeed(stored.seed, "IndexedDBから教材データを読み込みました。");
+      if (stored.key && stored.key !== SEED_RECORD_KEY) {
+        setAppUpdateMessage("旧バージョンの教材データを読み込んでいます。v10に切り替える場合は「教材データ再読み込み」から app_seed_v10.json を選択してください。", false, true);
+      }
       return;
     }
 
@@ -104,7 +117,7 @@ async function init() {
       if (devSeedLoaded) return;
     }
 
-    showSetup("教材データが未読込です。app_seed_v9.json を選択してください。");
+    showSetup("教材データが未読込です。app_seed_v10.json を選択してください。");
   } catch (error) {
     showSetup(`教材データの読み込みに失敗しました: ${error.message}`, true);
   }
@@ -134,9 +147,12 @@ function bindEvents() {
   el.checkUpdateBtn.addEventListener("click", () => checkAppUpdate());
   el.reloadAppBtn.addEventListener("click", () => window.location.reload());
   el.reloadSeedBtn.addEventListener("click", () => el.seedFileInput.click());
+  el.reloadSeedTopBtn?.addEventListener("click", () => el.seedFileInput.click());
+  el.reloadSeedSideBtn?.addEventListener("click", () => el.seedFileInput.click());
   el.seedFileInput.addEventListener("change", () => handleSeedFileSelected());
   el.deleteSeedBtn.addEventListener("click", () => deleteSeedData());
   el.resetProgressBtn.addEventListener("click", () => resetProgress());
+  el.resetProgressSideBtn?.addEventListener("click", () => resetProgress());
   el.fieldSelect.addEventListener("change", () => {
     state.field = el.fieldSelect.value;
     rebuildQueue();
@@ -229,13 +245,16 @@ function setSetupMessage(message, isError = false, isOk = false) {
 
 function validateSeed(seed) {
   if (!seed || typeof seed !== "object") throw new Error("JSONの形式が不正です。");
+  const isV10 = seed.version === "v10" || V10_SEED_KEYS.some((key) => key in seed);
+  const keysToValidate = isV10 ? Object.keys(EXPECTED_SEED_COUNTS) : REQUIRED_SEED_KEYS;
   const counts = Object.fromEntries(
-    Object.keys(EXPECTED_SEED_COUNTS).map((key) => {
+    keysToValidate.map((key) => {
       if (!Array.isArray(seed[key])) throw new Error(`${key} が配列ではありません。`);
       return [key, seed[key].length];
     }),
   );
   const mismatches = Object.entries(EXPECTED_SEED_COUNTS).filter(([key, expected]) => {
+    if (!(key in counts)) return false;
     if (typeof expected === "number") return counts[key] !== expected;
     return counts[key] < expected.min;
   });
@@ -272,7 +291,7 @@ function expectedLabel(expected) {
 async function deleteSeedData() {
   if (!window.confirm("端末内の教材データを削除します。進捗は残ります。")) return;
   await deleteSeedFromIndexedDb();
-  showSetup("教材データを削除しました。再度 app_seed_v9.json を読み込んでください。");
+  showSetup("教材データを削除しました。再度 app_seed_v10.json を読み込んでください。");
 }
 
 async function checkAppUpdate() {
@@ -312,7 +331,12 @@ function indexSeed(seed) {
   seed.memoryBySourceId = Object.fromEntries(seed.memory_points.map((item) => [item.source_question_id, item]));
   seed.clozeBySourceId = groupBy(seed.cloze_questions, "source_question_id");
   seed.falseBySourceId = groupBy(seed.generated_false_questions, "source_question_id");
+  seed.multiClozeBySourceId = groupBy(seed.multi_cloze_questions || [], "source_question_id");
+  seed.termCandidateById = Object.fromEntries((seed.term_candidates || []).map((item) => [item.term_id, item]));
+  seed.termCandidateByTerm = Object.fromEntries((seed.term_candidates || []).map((item) => [item.term, item]));
   seed.original_choice_questions = seed.original_choice_questions || [];
+  seed.multi_cloze_questions = seed.multi_cloze_questions || [];
+  seed.term_candidates = seed.term_candidates || [];
   seed.source_images = seed.source_images || {};
 }
 
@@ -375,8 +399,24 @@ function shuffleItems(items) {
   return copy;
 }
 
+function shuffleChoices(choices, answer) {
+  const normalizedAnswer = String(answer || "").trim();
+  const unique = uniqueStrings([...(choices || []), normalizedAnswer]);
+  for (let i = unique.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [unique[i], unique[j]] = [unique[j], unique[i]];
+  }
+
+  // 選択肢生成データに正解が先頭固定で入っている場合でも、左上連打で解けないようにする。
+  if (unique.length > 1 && unique[0] === normalizedAnswer) {
+    const swapIndex = unique.findIndex((value, index) => index > 0 && value !== normalizedAnswer);
+    if (swapIndex > 0) [unique[0], unique[swapIndex]] = [unique[swapIndex], unique[0]];
+  }
+  return unique;
+}
+
 function itemsForMode(mode) {
-  if (mode === "cloze") return state.seed.cloze_questions;
+  if (mode === "multiCloze") return state.seed.multi_cloze_questions || [];
   if (mode === "originalChoice") return state.seed.original_choice_questions || [];
   if (mode === "original") return state.seed.original_questions;
   if (mode === "false") return state.seed.generated_false_questions;
@@ -384,7 +424,7 @@ function itemsForMode(mode) {
 }
 
 function itemId(item) {
-  if (state.mode === "cloze") return item.cloze_id;
+  if (state.mode === "multiCloze") return item.multi_cloze_id;
   if (state.mode === "originalChoice") return item.original_choice_id;
   if (state.mode === "original") return item.question_id;
   if (state.mode === "false") return item.false_question_id;
@@ -427,7 +467,7 @@ function renderCurrent() {
     el.progressBadge.textContent = `テスト ${state.currentIndex + 1} / ${state.queue.length}`;
   }
 
-  if (state.mode === "cloze") renderCloze(item);
+  if (state.mode === "multiCloze") renderMultiCloze(item);
   if (state.mode === "originalChoice") renderOriginalChoice(item);
   if (state.mode === "original") renderOriginal(item);
   if (state.mode === "false") renderFalse(item);
@@ -443,6 +483,7 @@ function clearQuestion() {
   el.resultArea.textContent = "";
   el.testSummaryArea.hidden = true;
   el.testSummaryArea.innerHTML = "";
+  state.multiSelections = {};
   el.showAnswerBtn.hidden = true;
   el.rememberBtn.hidden = true;
   el.weakBtn.hidden = true;
@@ -450,35 +491,106 @@ function clearQuestion() {
   el.nextBtn.textContent = "次へ";
 }
 
-function renderCloze(item) {
-  el.questionArea.textContent = item.prompt;
+function renderMultiCloze(item) {
+  el.questionArea.innerHTML = "";
+  const prompt = document.createElement("div");
+  prompt.textContent = item.prompt;
+  el.questionArea.append(prompt);
+  if (item.quality_warning) {
+    const warning = document.createElement("p");
+    warning.className = "quality-warning";
+    warning.textContent = `注意: ${item.quality_warning}`;
+    el.questionArea.append(warning);
+  }
+  if (item.trap_intent) {
+    const trap = document.createElement("p");
+    trap.className = "subtle";
+    trap.textContent = `狙い: ${item.trap_intent}`;
+    el.questionArea.append(trap);
+  }
   appendSourceImage(item);
+  appendTermHelp(item);
   el.fieldBadge.textContent = FIELD_LABELS[item.field];
-  el.modeBadge.textContent = `${MODE_LABELS.cloze} / ${item.difficulty_level}`;
-  item.choices.forEach((choice) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "choice-button";
-    button.textContent = choice;
-    button.addEventListener("click", () => answerCloze(item, choice));
-    el.choicesArea.append(button);
+  el.modeBadge.textContent = `${MODE_LABELS.multiCloze} / ${item.difficulty_level || "-"}`;
+
+  (item.blanks || []).forEach((blank) => {
+    const card = document.createElement("section");
+    card.className = "multi-blank-card";
+    card.dataset.blankNo = String(blank.blank_no);
+    const title = document.createElement("h3");
+    title.textContent = `空欄${blank.blank_no}`;
+    const choices = document.createElement("div");
+    choices.className = "multi-choice-grid";
+    shuffleChoices(blank.choices || [], blank.answer).forEach((choice) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice-button";
+      button.textContent = choice;
+      button.addEventListener("click", () => selectMultiChoice(blank.blank_no, choice, choices));
+      choices.append(button);
+    });
+    card.append(title, choices);
+    el.choicesArea.append(card);
+  });
+
+  const answerButton = document.createElement("button");
+  answerButton.type = "button";
+  answerButton.className = "primary multi-answer-button";
+  answerButton.textContent = "回答する";
+  answerButton.addEventListener("click", () => answerMultiCloze(item));
+  el.choicesArea.append(answerButton);
+}
+
+function selectMultiChoice(blankNo, choice, container) {
+  if (state.answered) return;
+  state.multiSelections[blankNo] = choice;
+  [...container.querySelectorAll("button")].forEach((button) => {
+    button.classList.toggle("selected", button.textContent === choice);
   });
 }
 
-function answerCloze(item, choice) {
+function answerMultiCloze(item) {
   if (state.answered) return;
+  const blanks = item.blanks || [];
+  const missing = blanks.filter((blank) => !state.multiSelections[blank.blank_no]);
+  if (missing.length) {
+    el.resultArea.hidden = false;
+    el.resultArea.className = "result-area warn";
+    el.resultArea.textContent = `未選択の空欄があります: ${missing.map((blank) => blank.blank_no).join(", ")}`;
+    return;
+  }
+
   state.answered = true;
-  const correct = choice === item.answer;
-  saveAttempt(itemId(item), correct);
-  recordTestAnswer(item, correct);
-  [...el.choicesArea.children].forEach((button) => {
-    button.disabled = true;
-    if (button.textContent === item.answer) button.classList.add("correct");
-    if (button.textContent === choice && !correct) button.classList.add("incorrect");
+  let correctCount = 0;
+  const lines = [];
+  blanks.forEach((blank) => {
+    const selected = state.multiSelections[blank.blank_no];
+    const correct = selected === blank.answer;
+    if (correct) correctCount += 1;
+    lines.push(
+      [
+        `空欄${blank.blank_no}: ${correct ? "正解" : "不正解"}`,
+        `あなたの回答: ${selected}`,
+        `答え: ${blank.answer}`,
+        blank.explanation ? `解説: ${blank.explanation}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+    const card = el.choicesArea.querySelector(`.multi-blank-card[data-blank-no="${blank.blank_no}"]`);
+    card?.querySelectorAll("button").forEach((button) => {
+      button.disabled = true;
+      if (button.textContent === blank.answer) button.classList.add("correct");
+      if (button.textContent === selected && !correct) button.classList.add("incorrect");
+    });
   });
+
+  const allCorrect = correctCount === blanks.length;
+  saveAttempt(itemId(item), allCorrect, { partialCorrect: correctCount, partialTotal: blanks.length });
+  recordTestAnswer(item, allCorrect);
   el.resultArea.hidden = false;
-  el.resultArea.classList.add(correct ? "ok" : "bad");
-  el.resultArea.textContent = `${correct ? "正解" : "不正解"}\n答え: ${item.answer}\n${item.explanation || ""}`;
+  el.resultArea.className = `result-area ${allCorrect ? "ok" : "bad"}`;
+  el.resultArea.textContent = [`${correctCount} / ${blanks.length} 正解`, "", ...lines].join("\n");
   renderStats();
   renderSummary();
   renderItemStats(item);
@@ -493,6 +605,7 @@ function renderOriginal(item) {
   meta.textContent = `答え: ${item.answer || "-"} / review_status: ${item.review_status || "-"}`;
   el.questionArea.append(text, meta);
   appendSourceImage(item);
+  appendTermHelp(item);
   el.showAnswerBtn.hidden = false;
 }
 
@@ -550,6 +663,7 @@ function renderOriginalChoice(item) {
     el.choicesArea.append(info);
   }
   appendSourceImage(item);
+  appendTermHelp(item);
   el.showAnswerBtn.hidden = false;
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
@@ -592,6 +706,7 @@ function choiceTextForLabel(item, label) {
 function renderFalse(item) {
   el.questionArea.textContent = item.false_question_text;
   appendSourceImage(item);
+  appendTermHelp(item);
   ["○", "×"].forEach((choice) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -641,6 +756,7 @@ function renderMemory(item) {
   const traps = listBlock("trap_points", item.trap_points);
   el.questionArea.append(title, oneLine, why, focus, terms, traps);
   appendSourceImage(item);
+  appendTermHelp(item);
   el.rememberBtn.hidden = false;
   el.weakBtn.hidden = false;
   el.wrongBtn.hidden = false;
@@ -669,6 +785,134 @@ function appendSourceImage(item) {
     details.append(label, img);
   });
   el.questionArea.append(details);
+}
+
+function appendTermHelp(item) {
+  if (!state.seed?.term_candidates?.length) return;
+  const candidates = termHelpCandidates(item);
+  const keyTerms = termHelpKeyTerms(item);
+  const comparisonTerms = uniqueStrings([
+    ...(item.comparison_needed_terms || []),
+    ...candidates.flatMap((candidate) => candidate.likely_compare_with || []),
+  ]).slice(0, 8);
+  if (!candidates.length && !keyTerms.length && !comparisonTerms.length) return;
+
+  const details = document.createElement("details");
+  details.className = "term-help-panel";
+  const summary = document.createElement("summary");
+  summary.textContent = "この問題の用語を見る";
+  details.append(summary);
+
+  const notice = document.createElement("p");
+  notice.className = "subtle";
+  notice.textContent = "この用語ヘルプは候補情報です。定義の確定版ではありません。";
+  details.append(notice);
+
+  if (keyTerms.length) {
+    details.append(listBlock("key_terms", keyTerms.slice(0, 12)));
+  }
+  if (comparisonTerms.length) {
+    details.append(listBlock("comparison_needed_terms", comparisonTerms));
+  }
+
+  if (candidates.length) {
+    const list = document.createElement("div");
+    list.className = "term-help-list";
+    candidates.slice(0, 10).forEach((candidate) => {
+      const card = document.createElement("article");
+      card.className = "term-help-card";
+      const labels = [];
+      if (candidate.definition_risk === "high") labels.push("要確認");
+      if (candidate.comparison_needed) labels.push("比較注意");
+      card.innerHTML = `
+        <h3>${escapeHtml(candidate.term)}</h3>
+        <p>${escapeHtml(candidate.category || "-")} / importance: ${escapeHtml(candidate.importance || "-")} / priority: ${escapeHtml(candidate.review_priority || "-")}</p>
+        <p>${escapeHtml(candidate.candidate_reason || "")}</p>
+        ${
+          labels.length
+            ? `<p class="term-labels">${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</p>`
+            : ""
+        }
+        ${
+          candidate.likely_compare_with?.length
+            ? `<p>似た用語: ${escapeHtml(candidate.likely_compare_with.join(" / "))}</p>`
+            : ""
+        }
+        <p class="subtle">source_question_ids: ${escapeHtml((candidate.source_question_ids || []).slice(0, 6).join(", "))}</p>
+      `;
+      list.append(card);
+    });
+    details.append(list);
+  }
+
+  el.questionArea.append(details);
+}
+
+function termHelpCandidates(item) {
+  const sourceId = sourceIdFor(item);
+  const source = state.seed.originalById?.[sourceId];
+  const memory = source ? state.seed.memoryBySourceId?.[source.question_id] : null;
+  const multi = source ? state.seed.multiClozeBySourceId?.[source.question_id]?.[0] : null;
+  const ids = uniqueStrings([
+    ...(item.related_term_ids || []),
+    ...(multi?.related_term_ids || []),
+  ]);
+  const terms = termHelpKeyTerms(item);
+  const candidates = [];
+  ids.forEach((id) => {
+    const candidate = state.seed.termCandidateById?.[id];
+    if (candidate) candidates.push(candidate);
+  });
+  terms.forEach((term) => {
+    const candidate = state.seed.termCandidateByTerm?.[term];
+    if (candidate) candidates.push(candidate);
+  });
+  if (source?.question_text) {
+    state.seed.term_candidates
+      .filter((candidate) => candidate.importance === "high" && source.question_text.includes(candidate.term))
+      .slice(0, 8)
+      .forEach((candidate) => candidates.push(candidate));
+  }
+  if (memory?.key_terms) {
+    memory.key_terms.forEach((term) => {
+      const candidate = state.seed.termCandidateByTerm?.[term];
+      if (candidate) candidates.push(candidate);
+    });
+  }
+  return uniqueBy(candidates, "term_id");
+}
+
+function termHelpKeyTerms(item) {
+  const sourceId = sourceIdFor(item);
+  const source = state.seed.originalById?.[sourceId];
+  const memory = source ? state.seed.memoryBySourceId?.[source.question_id] : null;
+  const multi = source ? state.seed.multiClozeBySourceId?.[source.question_id]?.[0] : null;
+  return uniqueStrings([
+    ...(item.key_terms || []),
+    ...(memory?.key_terms || []),
+    ...(multi?.key_terms || []),
+  ]);
+}
+
+function uniqueBy(items, key) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const value = item?.[key];
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  return values
+    .map((value) => String(value || "").trim())
+    .filter((value) => {
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
 }
 
 function listBlock(label, values = []) {
@@ -766,10 +1010,14 @@ function escapeHtml(value) {
   });
 }
 
-function saveAttempt(id, correct) {
+function saveAttempt(id, correct, extra = {}) {
   const stats = progressFor(id);
   stats.attempts += 1;
   stats.lastStudiedAt = new Date().toISOString();
+  if (extra.partialTotal) {
+    stats.partialCorrect += extra.partialCorrect || 0;
+    stats.partialTotal += extra.partialTotal || 0;
+  }
   if (correct) {
     stats.correct += 1;
   } else {
@@ -796,6 +1044,8 @@ function progressFor(id) {
     attempts: 0,
     correct: 0,
     wrong: 0,
+    partialCorrect: 0,
+    partialTotal: 0,
     weak: false,
     lastStudiedAt: null,
     ...(state.progress.items[id] || {}),
@@ -838,15 +1088,25 @@ async function loadSeedFromIndexedDb() {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(SEED_STORE_NAME, "readonly");
     const store = transaction.objectStore(SEED_STORE_NAME);
-    const request = store.get(SEED_RECORD_KEY);
-    request.onsuccess = () => {
-      db.close();
-      resolve(request.result || null);
+    const keys = [SEED_RECORD_KEY, ...LEGACY_SEED_RECORD_KEYS];
+    let index = 0;
+    const tryNext = () => {
+      const request = store.get(keys[index]);
+      request.onsuccess = () => {
+        if (request.result || index === keys.length - 1) {
+          db.close();
+          resolve(request.result || null);
+          return;
+        }
+        index += 1;
+        tryNext();
+      };
+      request.onerror = () => {
+        db.close();
+        reject(request.error || new Error("教材データを読み込めませんでした。"));
+      };
     };
-    request.onerror = () => {
-      db.close();
-      reject(request.error || new Error("教材データを読み込めませんでした。"));
-    };
+    tryNext();
   });
 }
 
@@ -876,7 +1136,8 @@ async function deleteSeedFromIndexedDb() {
   const db = await openSeedDb();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(SEED_STORE_NAME, "readwrite");
-    transaction.objectStore(SEED_STORE_NAME).delete(SEED_RECORD_KEY);
+    const store = transaction.objectStore(SEED_STORE_NAME);
+    [SEED_RECORD_KEY, ...LEGACY_SEED_RECORD_KEYS].forEach((key) => store.delete(key));
     transaction.oncomplete = () => {
       db.close();
       resolve();
@@ -925,6 +1186,7 @@ function renderItemStats(item) {
   el.currentItemStats.textContent = [
     source ? `${FIELD_LABELS[source.field]} 問${source.question_number}` : "",
     `この問題: ${stats.attempts}回 / 正解${stats.correct} / 間違い${stats.wrong}`,
+    stats.partialTotal ? `部分正解累計: ${stats.partialCorrect} / ${stats.partialTotal}` : "",
     `苦手: ${stats.weak ? "ON" : "OFF"}`,
     `最終: ${last}`,
   ]

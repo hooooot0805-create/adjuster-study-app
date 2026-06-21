@@ -70,6 +70,10 @@ button.primary,
   color: #fff;
 }
 
+button.secondary {
+  background: var(--panel-soft);
+}
+
 button.correct {
   background: #dcfce7;
   border-color: var(--ok);
@@ -247,7 +251,7 @@ h2 {
 
 .control-panel {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr 1fr 1fr auto auto;
   gap: 12px;
   align-items: end;
   padding: 16px;
@@ -388,6 +392,36 @@ h2 {
   line-height: 1.55;
 }
 
+.multi-blank-card {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 14px;
+}
+
+.multi-blank-card h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--accent-dark);
+}
+
+.multi-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.multi-answer-button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.quality-warning {
+  color: var(--warn);
+  font-weight: 800;
+}
+
 .result-area {
   border-left: 4px solid var(--line);
   background: #ffffff;
@@ -495,6 +529,7 @@ h2 {
   font-size: 13px;
 }
 
+.term-help-panel,
 .source-image-panel {
   margin-top: 18px;
   border: 1px solid var(--line);
@@ -503,10 +538,56 @@ h2 {
   padding: 10px;
 }
 
+.term-help-panel summary,
 .source-image-panel summary {
   cursor: pointer;
   color: var(--focus);
   font-weight: 700;
+}
+
+.term-help-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.term-help-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 12px;
+  line-height: 1.65;
+}
+
+.term-help-card h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.term-help-card p {
+  margin: 4px 0;
+}
+
+.term-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.term-labels span {
+  display: inline-flex;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wide-button {
+  width: 100%;
+  margin-top: 14px;
 }
 
 .source-image-label {
@@ -559,6 +640,10 @@ h2 {
   }
 
   .choices-area {
+    grid-template-columns: 1fr;
+  }
+
+  .multi-choice-grid {
     grid-template-columns: 1fr;
   }
 
