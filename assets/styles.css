@@ -476,6 +476,99 @@ h2 {
   margin-top: 18px;
 }
 
+.memo-panel {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  padding: 14px;
+}
+
+.memo-panel label {
+  display: block;
+  margin: 10px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.memo-panel textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.memo-actions,
+.memo-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.memo-count {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ok);
+  padding: 2px 8px;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.memo-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.memo-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 12px;
+}
+
+.memo-card.resolved {
+  opacity: 0.72;
+  background: #f8fafc;
+}
+
+.memo-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.memo-card-head span,
+.memo-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.memo-text {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.memo-card details {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.visually-hidden-copy {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+}
+
 #nextBtn {
   margin-left: auto;
   background: var(--accent);

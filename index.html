@@ -123,12 +123,34 @@
             <div id="testSummaryArea" class="test-summary" hidden></div>
 
             <div class="action-row">
+              <button id="memoToggleBtn" type="button" class="secondary" hidden>問題メモ</button>
               <button id="showAnswerBtn" type="button" hidden>答えを見る</button>
               <button id="rememberBtn" type="button" hidden>覚えた</button>
               <button id="weakBtn" type="button" hidden>怪しい</button>
               <button id="wrongBtn" type="button" hidden>間違えた</button>
               <button id="nextBtn" type="button">次へ</button>
             </div>
+
+            <section id="memoPanel" class="memo-panel" hidden>
+              <h2>この問題をメモ</h2>
+              <label for="memoTypeSelect">種別</label>
+              <select id="memoTypeSelect">
+                <option value="用語が分からない">用語が分からない</option>
+                <option value="解説が薄い">解説が薄い</option>
+                <option value="穴埋めが変">穴埋めが変</option>
+                <option value="選択肢が変">選択肢が変</option>
+                <option value="正解が怪しい">正解が怪しい</option>
+                <option value="UIが見づらい">UIが見づらい</option>
+                <option value="その他">その他</option>
+              </select>
+              <label for="memoTextInput">メモ</label>
+              <textarea id="memoTextInput" rows="4" placeholder="気になった点をそのまま書いてください"></textarea>
+              <div class="memo-actions">
+                <button id="saveMemoBtn" type="button" class="primary">メモを保存</button>
+                <button id="cancelMemoBtn" type="button" class="secondary">閉じる</button>
+              </div>
+              <p id="memoStatus" class="setup-message"></p>
+            </section>
           </article>
 
           <aside class="side-panel">
@@ -168,6 +190,16 @@
             <button id="resetProgressBtn" type="button">進捗リセット</button>
           </div>
           <p id="appUpdateMessage" class="setup-message">アプリ本体と教材データは別管理です。</p>
+        </section>
+
+        <section id="memoListPanel" class="data-panel memo-list-panel" hidden>
+          <h2>問題メモ一覧 <span id="openMemoCount" class="memo-count">0</span></h2>
+          <div class="setup-actions">
+            <button id="copyMemosBtn" type="button">メモをコピー</button>
+            <button id="exportMemosBtn" type="button">メモをJSONで出力</button>
+          </div>
+          <p id="memoListStatus" class="setup-message"></p>
+          <div id="memoList" class="memo-list"></div>
         </section>
       </main>
     </div>

@@ -14,6 +14,7 @@ const MODE_LABELS = {
 };
 
 const STORAGE_KEY = "adjusterStudyMvpProgress.v1";
+const MEMO_STORAGE_KEY = "study_question_memos_v1";
 const SEED_DB_NAME = "adjusterStudySeed.v1";
 const SEED_STORE_NAME = "seed";
 const SEED_RECORD_KEY = "app_seed_v10";
@@ -45,6 +46,7 @@ const state = {
   seed: null,
   seedCounts: null,
   progress: loadProgress(),
+  memos: loadMemos(),
   mode: "multiCloze",
   field: "all",
   review: "all",
@@ -93,6 +95,19 @@ const el = {
   resultArea: document.querySelector("#resultArea"),
   testSummaryArea: document.querySelector("#testSummaryArea"),
   showAnswerBtn: document.querySelector("#showAnswerBtn"),
+  memoToggleBtn: document.querySelector("#memoToggleBtn"),
+  memoPanel: document.querySelector("#memoPanel"),
+  memoTypeSelect: document.querySelector("#memoTypeSelect"),
+  memoTextInput: document.querySelector("#memoTextInput"),
+  saveMemoBtn: document.querySelector("#saveMemoBtn"),
+  cancelMemoBtn: document.querySelector("#cancelMemoBtn"),
+  memoStatus: document.querySelector("#memoStatus"),
+  memoListPanel: document.querySelector("#memoListPanel"),
+  openMemoCount: document.querySelector("#openMemoCount"),
+  memoList: document.querySelector("#memoList"),
+  copyMemosBtn: document.querySelector("#copyMemosBtn"),
+  exportMemosBtn: document.querySelector("#exportMemosBtn"),
+  memoListStatus: document.querySelector("#memoListStatus"),
   rememberBtn: document.querySelector("#rememberBtn"),
   weakBtn: document.querySelector("#weakBtn"),
   wrongBtn: document.querySelector("#wrongBtn"),
@@ -162,6 +177,11 @@ function bindEvents() {
   el.deleteSeedBtn.addEventListener("click", () => deleteSeedData());
   el.resetProgressBtn.addEventListener("click", () => resetProgress());
   el.resetProgressSideBtn?.addEventListener("click", () => resetProgress());
+  el.memoToggleBtn.addEventListener("click", () => toggleMemoPanel());
+  el.cancelMemoBtn.addEventListener("click", () => closeMemoPanel());
+  el.saveMemoBtn.addEventListener("click", () => saveCurrentMemo());
+  el.copyMemosBtn.addEventListener("click", () => copyMemosAsMarkdown());
+  el.exportMemosBtn.addEventListener("click", () => exportMemosAsJson());
   el.fieldSelect.addEventListener("change", () => {
     state.field = el.fieldSelect.value;
     rebuildQueue();
@@ -225,11 +245,13 @@ function activateSeed(seed, message) {
   el.controlPanel.hidden = false;
   el.studyLayout.hidden = false;
   el.dataPanel.hidden = false;
+  el.memoListPanel.hidden = false;
   el.loadStatus.textContent = "教材読込済み";
   el.loadStatus.classList.add("ready");
   setSetupMessage(message, false, true);
   renderSeedCounts(el.loadedSeedCounts, counts);
   renderSummary();
+  renderMemoList();
   rebuildQueue();
 }
 
@@ -241,6 +263,7 @@ function showSetup(message, isError = false) {
   el.controlPanel.hidden = true;
   el.studyLayout.hidden = true;
   el.dataPanel.hidden = true;
+  el.memoListPanel.hidden = true;
   el.loadStatus.textContent = "教材未読込";
   el.loadStatus.classList.remove("ready");
   setSetupMessage(message, isError);
@@ -482,6 +505,7 @@ function renderCurrent() {
   if (state.mode === "false") renderFalse(item);
   if (state.mode === "memory") renderMemory(item);
   renderItemStats(item);
+  prepareMemoForItem(item);
 }
 
 function clearQuestion() {
@@ -492,6 +516,8 @@ function clearQuestion() {
   el.resultArea.textContent = "";
   el.testSummaryArea.hidden = true;
   el.testSummaryArea.innerHTML = "";
+  closeMemoPanel({ clear: true });
+  el.memoToggleBtn.hidden = true;
   state.multiSelections = {};
   el.showAnswerBtn.hidden = true;
   el.rememberBtn.hidden = true;
@@ -1115,6 +1141,213 @@ function renderTestSummary() {
   el.nextBtn.textContent = "もう一度";
 }
 
+function prepareMemoForItem(item) {
+  el.memoToggleBtn.hidden = false;
+  el.memoToggleBtn.textContent = openMemoCountForSource(sourceIdFor(item))
+    ? `問題メモ（${openMemoCountForSource(sourceIdFor(item))}）`
+    : "問題メモ";
+}
+
+function toggleMemoPanel() {
+  if (!state.queue.length) return;
+  const willOpen = el.memoPanel.hidden;
+  if (willOpen) {
+    el.memoPanel.hidden = false;
+    el.memoStatus.textContent = "";
+    el.memoStatus.className = "setup-message";
+    el.memoTextInput.focus();
+    return;
+  }
+  closeMemoPanel();
+}
+
+function closeMemoPanel(options = {}) {
+  if (!el.memoPanel) return;
+  el.memoPanel.hidden = true;
+  el.memoStatus.textContent = "";
+  el.memoStatus.className = "setup-message";
+  if (options.clear) {
+    el.memoTypeSelect.value = "用語が分からない";
+    el.memoTextInput.value = "";
+  }
+}
+
+function saveCurrentMemo() {
+  if (!state.queue.length) return;
+  const memoText = el.memoTextInput.value.trim();
+  if (!memoText) {
+    setMemoStatus("メモ本文を入力してください。", true);
+    return;
+  }
+  const item = state.queue[state.currentIndex];
+  const context = memoContextFor(item);
+  const now = new Date().toISOString();
+  const memo = {
+    memo_id: `memo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    created_at: now,
+    mode: state.mode,
+    field: context.field,
+    source_question_id: context.source_question_id,
+    item_id: itemId(item),
+    question_text: context.question_text,
+    memo_type: el.memoTypeSelect.value,
+    memo_text: memoText,
+    resolved: false,
+  };
+  state.memos.unshift(memo);
+  persistMemos();
+  el.memoTextInput.value = "";
+  setMemoStatus("メモを保存しました。", false, true);
+  prepareMemoForItem(item);
+  renderMemoList();
+}
+
+function setMemoStatus(message, isError = false, isOk = false) {
+  el.memoStatus.textContent = message;
+  el.memoStatus.className = `setup-message ${isError ? "error" : isOk ? "ok" : ""}`;
+}
+
+function memoContextFor(item) {
+  const sourceId = sourceIdFor(item);
+  const source = state.seed.originalById?.[sourceId];
+  const questionText =
+    source?.question_text ||
+    item.question_text ||
+    item.prompt ||
+    item.false_question_text ||
+    item.one_line_memory ||
+    "";
+  return {
+    source_question_id: sourceId,
+    field: source?.field || item.field || "-",
+    question_text: questionText,
+  };
+}
+
+function openMemoCountForSource(sourceId) {
+  return state.memos.filter((memo) => memo.source_question_id === sourceId && !memo.resolved).length;
+}
+
+function renderMemoList() {
+  if (!el.memoList) return;
+  const openMemos = state.memos.filter((memo) => !memo.resolved);
+  el.openMemoCount.textContent = `${openMemos.length}件`;
+  if (!state.memos.length) {
+    el.memoList.innerHTML = "<p class=\"subtle\">問題メモはまだありません。</p>";
+    return;
+  }
+  el.memoList.innerHTML = "";
+  state.memos.forEach((memo, index) => {
+    const card = document.createElement("article");
+    card.className = `memo-card ${memo.resolved ? "resolved" : ""}`;
+    card.innerHTML = `
+      <div class="memo-card-head">
+        <strong>${escapeHtml(memo.memo_type)}</strong>
+        <span>${escapeHtml(formatDateTime(memo.created_at))}</span>
+      </div>
+      <p class="memo-meta">${escapeHtml(memo.field)} / ${escapeHtml(MODE_LABELS[memo.mode] || memo.mode)} / ${escapeHtml(memo.source_question_id)}</p>
+      <p class="memo-text">${escapeHtml(memo.memo_text)}</p>
+      <details>
+        <summary>問題文</summary>
+        <p>${escapeHtml(memo.question_text)}</p>
+      </details>
+      <div class="memo-card-actions">
+        <button type="button" data-memo-action="resolve" data-memo-index="${index}">${memo.resolved ? "未対応に戻す" : "解決済みにする"}</button>
+        <button type="button" data-memo-action="delete" data-memo-index="${index}" class="secondary">削除</button>
+      </div>
+    `;
+    el.memoList.append(card);
+  });
+  el.memoList.querySelectorAll("[data-memo-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.memoIndex);
+      if (button.dataset.memoAction === "resolve") toggleMemoResolved(index);
+      if (button.dataset.memoAction === "delete") deleteMemo(index);
+    });
+  });
+}
+
+function toggleMemoResolved(index) {
+  if (!state.memos[index]) return;
+  state.memos[index].resolved = !state.memos[index].resolved;
+  persistMemos();
+  renderMemoList();
+  if (state.queue.length) prepareMemoForItem(state.queue[state.currentIndex]);
+}
+
+function deleteMemo(index) {
+  if (!state.memos[index]) return;
+  if (!window.confirm("このメモを削除します。")) return;
+  state.memos.splice(index, 1);
+  persistMemos();
+  renderMemoList();
+  if (state.queue.length) prepareMemoForItem(state.queue[state.currentIndex]);
+}
+
+async function copyMemosAsMarkdown() {
+  const markdown = memosToMarkdown(state.memos);
+  try {
+    await navigator.clipboard.writeText(markdown);
+    setMemoListStatus("Markdown形式でコピーしました。", false, true);
+  } catch {
+    fallbackCopyText(markdown);
+    setMemoListStatus("Markdownを選択状態にしました。コピーしてください。", false, true);
+  }
+}
+
+function fallbackCopyText(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.className = "visually-hidden-copy";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function exportMemosAsJson() {
+  const blob = new Blob([JSON.stringify(state.memos, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `study-question-memos-${todayKey()}.json`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  setMemoListStatus("メモJSONを書き出しました。", false, true);
+}
+
+function memosToMarkdown(memos) {
+  if (!memos.length) return "## 問題メモ\n\nメモはありません。\n";
+  const lines = ["## 問題メモ", ""];
+  memos.forEach((memo, index) => {
+    lines.push(`### ${index + 1}`);
+    lines.push(`- 日時: ${formatDateTime(memo.created_at)}`);
+    lines.push(`- 分野: ${memo.field}`);
+    lines.push(`- モード: ${MODE_LABELS[memo.mode] || memo.mode}`);
+    lines.push(`- source_question_id: ${memo.source_question_id}`);
+    lines.push(`- 種別: ${memo.memo_type}`);
+    lines.push(`- resolved: ${memo.resolved ? "true" : "false"}`);
+    lines.push(`- メモ: ${memo.memo_text}`);
+    lines.push(`- 問題文: ${memo.question_text}`);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function setMemoListStatus(message, isError = false, isOk = false) {
+  el.memoListStatus.textContent = message;
+  el.memoListStatus.className = `setup-message ${isError ? "error" : isOk ? "ok" : ""}`;
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "-";
+  return date.toLocaleString("ja-JP");
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => {
     const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" };
@@ -1175,6 +1408,19 @@ function loadProgress() {
 
 function persistProgress() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progress));
+}
+
+function loadMemos() {
+  try {
+    const memos = JSON.parse(localStorage.getItem(MEMO_STORAGE_KEY));
+    return Array.isArray(memos) ? memos : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistMemos() {
+  localStorage.setItem(MEMO_STORAGE_KEY, JSON.stringify(state.memos));
 }
 
 function openSeedDb() {
