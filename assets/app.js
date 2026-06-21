@@ -1144,8 +1144,8 @@ function renderTestSummary() {
 function prepareMemoForItem(item) {
   el.memoToggleBtn.hidden = false;
   el.memoToggleBtn.textContent = openMemoCountForSource(sourceIdFor(item))
-    ? `問題メモ（${openMemoCountForSource(sourceIdFor(item))}）`
-    : "問題メモ";
+    ? `この問題をメモ（${openMemoCountForSource(sourceIdFor(item))}）`
+    : "この問題をメモ";
 }
 
 function toggleMemoPanel() {
